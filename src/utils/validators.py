@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 import pandas as pd
 import numpy as np
+from utils.logger import Logger
 
 @dataclass
 class ValidationRule:
@@ -160,4 +161,95 @@ class DataValidator:
         func = params.get('func')
         if func and callable(func):
             return series.apply(func).all()
+        return False
+
+def validate_config(config: Dict[str, Any]) -> bool:
+    """
+    Валидация конфигурации
+    
+    Args:
+        config: Конфигурация для валидации
+        
+    Returns:
+        True если конфигурация валидна
+    """
+    logger = Logger()
+    
+    try:
+        # Проверяем обязательные секции
+        required_sections = [
+            'ollama',
+            'agents',
+            'data',
+            'notifications',
+            'analytics',
+            'logging',
+            'cache'
+        ]
+        
+        for section in required_sections:
+            if section not in config:
+                logger.error(f"Отсутствует обязательная секция конфигурации: {section}")
+                return False
+                
+        # Проверяем параметры Ollama
+        ollama_config = config['ollama']
+        required_ollama_params = ['host', 'model', 'temperature', 'top_p', 'max_tokens', 'context_window']
+        for param in required_ollama_params:
+            if param not in ollama_config:
+                logger.error(f"Отсутствует обязательный параметр Ollama: {param}")
+                return False
+                
+        # Проверяем параметры агентов
+        agents_config = config['agents']
+        required_agents = ['planner', 'executor', 'critic', 'praise', 'arbiter']
+        for agent in required_agents:
+            if agent not in agents_config:
+                logger.error(f"Отсутствует конфигурация агента: {agent}")
+                return False
+                
+        # Проверяем параметры данных
+        data_config = config['data']
+        required_data_params = ['chunk_size', 'min_text_length', 'max_text_length', 'supported_formats']
+        for param in required_data_params:
+            if param not in data_config:
+                logger.error(f"Отсутствует обязательный параметр данных: {param}")
+                return False
+                
+        # Проверяем параметры уведомлений
+        notifications_config = config['notifications']
+        required_notification_params = ['retention_days', 'max_notifications', 'auto_cleanup', 'display_format']
+        for param in required_notification_params:
+            if param not in notifications_config:
+                logger.error(f"Отсутствует обязательный параметр уведомлений: {param}")
+                return False
+                
+        # Проверяем параметры аналитики
+        analytics_config = config['analytics']
+        required_analytics_params = ['metrics_retention_days', 'prediction_horizon_days', 'update_interval_minutes']
+        for param in required_analytics_params:
+            if param not in analytics_config:
+                logger.error(f"Отсутствует обязательный параметр аналитики: {param}")
+                return False
+                
+        # Проверяем параметры логирования
+        logging_config = config['logging']
+        required_logging_params = ['level', 'file_path', 'max_file_size_mb', 'backup_count']
+        for param in required_logging_params:
+            if param not in logging_config:
+                logger.error(f"Отсутствует обязательный параметр логирования: {param}")
+                return False
+                
+        # Проверяем параметры кэширования
+        cache_config = config['cache']
+        required_cache_params = ['enabled', 'ttl_seconds', 'max_size_mb']
+        for param in required_cache_params:
+            if param not in cache_config:
+                logger.error(f"Отсутствует обязательный параметр кэширования: {param}")
+                return False
+                
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ошибка при валидации конфигурации: {str(e)}")
         return False 

@@ -1,6 +1,15 @@
 class OMARError(Exception):
-    """Базовый класс для всех исключений OMAR"""
-    pass
+    """Базовый класс исключений для OMAR"""
+    
+    def __init__(self, message: str):
+        """
+        Инициализация исключения
+        
+        Args:
+            message: Сообщение об ошибке
+        """
+        self.message = message
+        super().__init__(self.message)
 
 class ValidationError(OMARError):
     """Ошибка валидации данных"""
