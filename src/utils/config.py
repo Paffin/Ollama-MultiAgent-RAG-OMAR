@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from enum import Enum
+from functools import partial
 
 class ConfigError(Exception):
     """Базовый класс для ошибок конфигурации"""
@@ -126,9 +127,9 @@ class NotificationConfig:
 @dataclass
 class AppConfig:
     theme: str = "light"
-    ollama: OllamaConfig = OllamaConfig()
-    agent: AgentConfig = AgentConfig()
-    data: DataConfig = DataConfig()
+    ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
+    data: DataConfig = field(default_factory=DataConfig)
 
 @dataclass
 class ConfigManager:
