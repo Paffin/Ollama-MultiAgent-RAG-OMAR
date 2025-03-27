@@ -2,7 +2,6 @@
 Модуль Streamlit интерфейса
 """
 
-import streamlit as st
 from .components import (
     AgentChain,
     AnalyticsDashboard,
@@ -12,7 +11,6 @@ from .components import (
 )
 
 __all__ = [
-    'st',
     'AgentChain',
     'AnalyticsDashboard',
     'DataProcessingPanel',

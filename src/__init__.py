@@ -1,6 +1,22 @@
 """
-OMAR - MultiAgent System with RAG and Analytics
+OMAR - Multi-Agent RAG System
 """
+
+from .streamlit import (
+    AgentChain,
+    AnalyticsDashboard,
+    DataProcessingPanel,
+    NotificationPanel,
+    SettingsPanel
+)
+
+__all__ = [
+    'AgentChain',
+    'AnalyticsDashboard',
+    'DataProcessingPanel',
+    'NotificationPanel',
+    'SettingsPanel'
+]
 
 __version__ = "1.0.0"
 __author__ = "Your Name"
