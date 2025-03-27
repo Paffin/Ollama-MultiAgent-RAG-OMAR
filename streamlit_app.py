@@ -151,7 +151,7 @@ def main():
     st.sidebar.markdown("### Настройки итераций")
     iteration_mode = st.sidebar.radio(
         "Режим итераций",
-        ["Фиксированное количество", "Динамическое (по качеству)", "Динамическое (по улучшению)"]
+        ["Фиксированное количество", "Динамическое (по качеству)", "Динамическое (по улучшению)", "Адаптивное"]
     )
     
     if iteration_mode == "Фиксированное количество":
@@ -159,9 +159,17 @@ def main():
     elif iteration_mode == "Динамическое (по качеству)":
         quality_threshold = st.sidebar.slider("Порог качества", 0.0, 1.0, 0.8, 0.05)
         max_iterations = 5  # Максимальное количество итераций
-    else:  # Динамическое (по улучшению)
+        min_improvement = st.sidebar.slider("Минимальное улучшение", 0.0, 0.5, 0.1, 0.05)
+    elif iteration_mode == "Динамическое (по улучшению)":
         improvement_threshold = st.sidebar.slider("Порог улучшения", 0.0, 1.0, 0.1, 0.05)
         max_iterations = 5  # Максимальное количество итераций
+        min_quality = st.sidebar.slider("Минимальное качество", 0.0, 1.0, 0.6, 0.05)
+    else:  # Адаптивное
+        initial_quality_threshold = st.sidebar.slider("Начальный порог качества", 0.0, 1.0, 0.8, 0.05)
+        min_improvement = st.sidebar.slider("Минимальное улучшение", 0.0, 0.5, 0.1, 0.05)
+        max_iterations = 5  # Максимальное количество итераций
+        quality_threshold = initial_quality_threshold
+        improvement_threshold = 0.1
 
     # --- Основной ввод ---
     user_query = st.text_input("Введите задачу/запрос:")
@@ -251,11 +259,24 @@ def main():
 
             # Проверка необходимости продолжения итераций
             if iteration_mode == "Динамическое (по качеству)":
-                should_continue = current_quality < quality_threshold
+                improvement = current_quality - previous_quality
+                should_continue = current_quality < quality_threshold and improvement > min_improvement
+                st.markdown(f"**Улучшение:** {improvement:.2f}")
             elif iteration_mode == "Динамическое (по улучшению)":
                 improvement = current_quality - previous_quality
-                should_continue = improvement > improvement_threshold
+                should_continue = improvement > improvement_threshold and current_quality > min_quality
                 st.markdown(f"**Улучшение:** {improvement:.2f}")
+            elif iteration_mode == "Адаптивное":
+                improvement = current_quality - previous_quality
+                # Адаптируем порог качества на основе улучшения
+                if improvement > 0.2:  # Большое улучшение
+                    quality_threshold = min(quality_threshold + 0.1, 0.95)
+                elif improvement < 0.05:  # Малое улучшение
+                    quality_threshold = max(quality_threshold - 0.05, 0.6)
+                
+                should_continue = current_quality < quality_threshold and improvement > min_improvement
+                st.markdown(f"**Улучшение:** {improvement:.2f}")
+                st.markdown(f"**Текущий порог качества:** {quality_threshold:.2f}")
             
             previous_quality = current_quality
 
