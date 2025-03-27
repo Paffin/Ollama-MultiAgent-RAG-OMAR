@@ -46,6 +46,13 @@ from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
 from utils.cache import Cache
+from streamlit.components import (
+    AgentChain,
+    AnalyticsDashboard,
+    DataProcessingPanel,
+    NotificationPanel,
+    SettingsPanel
+)
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
     """
@@ -158,15 +165,6 @@ def main():
             
         # Заголовок
         st.title("OMAR - Multi-Agent RAG System")
-        
-        # Импортируем компоненты здесь, чтобы избежать циклических импортов
-        from streamlit.components import (
-            AgentChain,
-            AnalyticsDashboard,
-            DataProcessingPanel,
-            NotificationPanel,
-            SettingsPanel
-        )
         
         # Инициализация компонентов
         agent_chain = AgentChain(st.session_state.agent_chain)
