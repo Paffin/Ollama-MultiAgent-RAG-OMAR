@@ -145,7 +145,7 @@ def main():
     top_p = st.sidebar.slider("top_p", 0.0, 1.0, 0.9, 0.05)
     presence_penalty = st.sidebar.slider("presence_penalty", 0.0, 2.0, 0.0, 0.1)
     frequency_penalty = st.sidebar.slider("frequency_penalty", 0.0, 2.0, 0.0, 0.1)
-    num_ctx = st.sidebar.number_input("num_ctx", 512, 8192, 2048, 256)
+    num_ctx = st.sidebar.number_input("num_ctx", 512, 10000, 10000, 256)
     num_predict = st.sidebar.number_input("num_predict", 64, 4096, 512, 64)
 
     st.sidebar.markdown("### Кол-во итераций")

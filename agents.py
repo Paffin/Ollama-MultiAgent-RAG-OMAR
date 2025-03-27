@@ -78,14 +78,32 @@ class PlannerAgent(BaseAgent):
             if len(local_hits) == 0:
                 # Если нет локальных данных, проверяем, не требует ли запрос комплексного решения
                 if "и" in user_query.lower() or "затем" in user_query.lower() or "после" in user_query.lower():
-                    # Разбиваем запрос на шаги
+                    # Разбиваем запрос на шаги, учитывая союзы и предлоги
                     steps = []
-                    for part in user_query.split("и"):
+                    # Разбиваем по союзам и предлогам
+                    parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
+                    for part in parts:
                         part = part.strip()
-                        if part:
+                        if part and len(part) > 2:  # Игнорируем слишком короткие части
                             steps.append(part)
+                    
                     if len(steps) > 1:
-                        plan = "complex: " + "; ".join(steps)
+                        # Формируем комплексное решение с полными шагами
+                        full_steps = []
+                        current_pos = 0
+                        for step in steps:
+                            # Находим позицию шага в оригинальном запросе
+                            pos = user_query.lower().find(step, current_pos)
+                            if pos != -1:
+                                # Берем оригинальный текст шага с сохранением регистра
+                                full_step = user_query[pos:pos + len(step)]
+                                full_steps.append(full_step)
+                                current_pos = pos + len(step)
+                        
+                        if full_steps:
+                            plan = "complex: " + "; ".join(full_steps)
+                        else:
+                            plan = f"llm: {user_query}"
                     else:
                         plan = f"llm: {user_query}"
                 else:
