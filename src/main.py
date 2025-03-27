@@ -24,7 +24,7 @@ from agents import (
     PraiseAgent,
     ArbiterAgent
 )
-from ollama_client import OllamaClient
+from ollama.client import OllamaClient
 from rag_db import SimpleVectorStore
 from prompts import (
     PLANNER_PROMPT,
