@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+*.pyd
+*.so
+*.dll
+
+# Environments
+venv/
+.env
+.venv/
+ipynb_checkpoints/
+
+# Streamlit cache
+.streamlit/
+*.streamlit
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs or temporary
+*.log
+*.temp
+*.tmp
+*.swp
+*.swo
+*.bak
+
+# IDE settings
+.vscode/
+.idea/
+*.iml
+
+# Any custom folder to ignore
+ignor/
