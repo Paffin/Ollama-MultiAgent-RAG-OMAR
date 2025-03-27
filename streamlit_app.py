@@ -315,7 +315,65 @@ def main():
                 log_chain("ArbiterAgent", "RESPONSE", arb_text)
                 st.markdown("**Rework Instruction:**")
                 st.code(arb_text, language="markdown")
-                current_instruction = arb_text
+
+                # Проверяем, нужно ли изменить тип инструкции
+                instruction_type_match = re.search(r'\[Тип инструкции\]:\s*(\w+)\s*/\s*(\w+)', arb_text)
+                if instruction_type_match:
+                    current_type, new_type = instruction_type_match.groups()
+                    if current_type != new_type:
+                        st.markdown(f"**Изменение типа инструкции:** {current_type} -> {new_type}")
+                        # Извлекаем обоснование
+                        justification_match = re.search(r'\[Обоснование\]:\s*(.*?)(?=\[|$)', arb_text)
+                        if justification_match:
+                            st.markdown(f"**Обоснование:** {justification_match.group(1)}")
+                        
+                        # Формируем новую инструкцию
+                        if new_type == 'ducksearch':
+                            current_instruction = f"ducksearch: {user_query}"
+                        elif new_type == 'browser':
+                            current_instruction = f"browser: {user_query}"
+                        elif new_type == 'search':
+                            current_instruction = f"search: {user_query}"
+                        elif new_type == 'cmd':
+                            current_instruction = f"cmd: {user_query}"
+                        elif new_type == 'ls':
+                            current_instruction = f"ls: {user_query}"
+                        elif new_type == 'visual':
+                            current_instruction = f"visual: {user_query}"
+                        elif new_type == 'complex':
+                            # Разбиваем запрос на шаги
+                            steps = []
+                            parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
+                            for part in parts:
+                                part = part.strip()
+                                if part and len(part) > 2:
+                                    steps.append(part)
+                            
+                            if len(steps) > 1:
+                                full_steps = []
+                                current_pos = 0
+                                for step in steps:
+                                    pos = user_query.lower().find(step, current_pos)
+                                    if pos != -1:
+                                        full_step = user_query[pos:pos + len(step)]
+                                        full_steps.append(full_step)
+                                        current_pos = pos + len(step)
+                                
+                                if full_steps:
+                                    current_instruction = "complex: " + "; ".join(full_steps)
+                                else:
+                                    current_instruction = f"llm: {user_query}"
+                            else:
+                                current_instruction = f"llm: {user_query}"
+                        else:
+                            current_instruction = f"llm: {user_query}"
+                        
+                        st.markdown("**Новая инструкция:**")
+                        st.code(current_instruction, language="markdown")
+                    else:
+                        current_instruction = arb_text
+                else:
+                    current_instruction = arb_text
             else:
                 st.session_state.final_answer = exec_text
 
