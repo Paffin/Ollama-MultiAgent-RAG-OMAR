@@ -2,6 +2,7 @@
 
 import streamlit as st
 import time
+import re
 
 from ollama_client import OllamaClient
 from agents import (
@@ -12,7 +13,6 @@ from agents import (
     ArbiterAgent
 )
 from rag_db import SimpleVectorStore
-
 
 def init_session_state():
     if "ollama_client" not in st.session_state:
@@ -30,13 +30,14 @@ def init_session_state():
     if "arbiter_agent" not in st.session_state:
         st.session_state.arbiter_agent = None
     if "chain_trace" not in st.session_state:
-        st.session_state.chain_trace = []  # пошаговый лог
+        st.session_state.chain_trace = []
     if "final_answer" not in st.session_state:
         st.session_state.final_answer = ""
 
 def log_chain(agent_name: str, step_type: str, content: str):
     """
-    step_type может быть PROMPT/RESPONSE или TOOL
+    Логируем шаг chain-of-thought.
+    Выводим контент как Markdown с подсветкой (language='markdown').
     """
     st.session_state.chain_trace.append({
         "agent": agent_name,
@@ -46,47 +47,83 @@ def log_chain(agent_name: str, step_type: str, content: str):
 
 def display_chain_trace():
     """
-    Отображаем лог chain_trace шаг за шагом
+    Проходимся по chain_trace и выводим каждый шаг.
+    Используем st.code(..., language='markdown') для подсветки кода/Markdown.
     """
     for i, record in enumerate(st.session_state.chain_trace):
-        step_no = i + 1
-        agent = record["agent"]
-        tp = record["type"]
-        msg = record["content"]
-        st.markdown(f"**Step {step_no}** - {agent} [{tp}]:")
-        st.write(f"```\n{msg}\n```")
+        st.markdown(f"**Step {i+1} – {record['agent']} [{record['type']}]**")
+        st.code(record["content"], language="markdown")
 
+def detect_language(user_query: str) -> str:
+    """
+    Простейшее определение: если в тексте много кириллических букв, считаем язык русским.
+    Иначе английский (или другой).
+    """
+    cyr_count = len(re.findall(r'[а-яА-ЯёЁ]', user_query))
+    if cyr_count >= 3:
+        return "ru"
+    return "en"
 
 def main():
-    st.title("Мультиагентная система (многократные итерации + Chain-of-Thought)")
+    st.title("MultiAgent System with Markdown & Code Highlight in Chain-of-Thought")
 
     init_session_state()
     client = st.session_state.ollama_client
 
-    with st.expander("Настройки агентов"):
+    # --- Настройки агентов ---
+    with st.expander("Настройка агентов"):
         models = client.list_models()
         if not models:
             st.warning("Не удалось получить список моделей Ollama.")
             models = ["unknown"]
 
-        model_planner = st.selectbox("PlannerAgent Model", models, index=0)
-        model_executor = st.selectbox("ExecutorAgent Model", models, index=0)
-        model_critic = st.selectbox("CriticAgent Model", models, index=0)
-        model_praise = st.selectbox("PraiseAgent Model", models, index=0)
-        model_arbiter = st.selectbox("ArbiterAgent Model", models, index=0)
+        model_planner = st.selectbox("Planner Model", models, index=0)
+        model_executor = st.selectbox("Executor Model", models, index=0)
+        model_critic = st.selectbox("Critic Model", models, index=0)
+        model_praise = st.selectbox("Praise Model", models, index=0)
+        model_arbiter = st.selectbox("Arbiter Model", models, index=0)
 
-        def_planner = "Ты - Агент-Планировщик..."
-        def_executor = "Ты - Агент-Исполнитель..."
-        def_critic = "Ты - Агент-Критик..."
-        def_praise = "Ты - Агент-Похвала..."
-        def_arbiter = "Ты - Агент-Арбитр. Учитывай замечания, не всё затирай..."
+        # Системные промпты: 
+        # подчеркиваем, что Critic/Praise/Arbiter НЕ ДАЮТ итогового решения.
+        def_planner = """\
+You are the PlannerAgent.
+You receive the user's request and break it into instructions for the ExecutorAgent.
+Never provide a final solution yourself.
+Keep the same language as the user.
+"""
+        def_executor = """\
+You are the ExecutorAgent.
+YOU ALONE provide the final solution (answer).
+Other agents (Critic, Praise, Arbiter) may give feedback, 
+but they must NOT present the final solution. 
+You must adhere to the instructions and finalize the answer in the user's language.
+"""
+        def_critic = """\
+You are the CriticAgent.
+Your job: analyze the ExecutorAgent's last answer. 
+Identify flaws, weaknesses, or inaccuracies. 
+DO NOT provide a final solution or final code. 
+Only list potential problems or ways to refine/optimize in the same language as user.
+"""
+        def_praise = """\
+You are the PraiseAgent.
+Your job: highlight the strengths of the ExecutorAgent's answer. 
+DO NOT provide the final solution. 
+Use the same language as the user, focusing only on positives.
+"""
+        def_arbiter = """\
+You are the ArbiterAgent.
+You see the ExecutorAgent's answer, plus Critic and Praise.
+Your role: produce a "Rework Instruction" to help Executor refine the solution. 
+Never present the final solution or final code yourself. 
+Stay in the user's language. 
+"""
 
-        sp_planner = st.text_area("PlannerAgent System Prompt:", def_planner, height=80)
-        sp_executor = st.text_area("ExecutorAgent System Prompt:", def_executor, height=80)
-        sp_critic   = st.text_area("CriticAgent System Prompt:", def_critic,   height=80)
-        sp_praise   = st.text_area("PraiseAgent System Prompt:", def_praise,   height=80)
-        sp_arbiter  = st.text_area("ArbiterAgent System Prompt:", def_arbiter, height=80)
-
+        sp_planner = st.text_area("PlannerAgent Prompt", def_planner, height=120)
+        sp_executor = st.text_area("ExecutorAgent Prompt", def_executor, height=120)
+        sp_critic = st.text_area("CriticAgent Prompt", def_critic, height=120)
+        sp_praise = st.text_area("PraiseAgent Prompt", def_praise, height=120)
+        sp_arbiter = st.text_area("ArbiterAgent Prompt", def_arbiter, height=120)
 
         if st.button("Инициализировать агентов"):
             from agents import (
@@ -128,43 +165,51 @@ def main():
             )
             st.session_state.chain_trace = []
             st.session_state.final_answer = ""
-            st.success("Агенты созданы / обновлены.")
+            st.success("Готово: агенты переинициализированы.")
 
+    # --- Загрузка документов (RAG) ---
     with st.expander("Загрузка документов (RAG)"):
-        up_files = st.file_uploader("Загрузите текстовые файлы", accept_multiple_files=True)
+        up_files = st.file_uploader("Выберите TXT-файлы", accept_multiple_files=True)
         if up_files:
             for f in up_files:
                 text = f.read().decode("utf-8", errors="ignore")
                 st.session_state.vector_store.add_documents([text])
             st.success("Документы добавлены в векторный индекс.")
 
+    # --- Сайдбар: параметры Ollama ---
     st.sidebar.title("Параметры Ollama")
     temperature = st.sidebar.slider("temperature", 0.0, 2.0, 0.8, 0.1)
     top_p = st.sidebar.slider("top_p", 0.0, 1.0, 0.9, 0.05)
     presence_penalty = st.sidebar.slider("presence_penalty", 0.0, 2.0, 0.0, 0.1)
     frequency_penalty = st.sidebar.slider("frequency_penalty", 0.0, 2.0, 0.0, 0.1)
-    num_ctx = st.sidebar.number_input("num_ctx", min_value=512, max_value=8192, value=2048, step=256)
-    num_predict = st.sidebar.number_input("num_predict", min_value=64, max_value=4096, value=512, step=64)
+    num_ctx = st.sidebar.number_input("num_ctx", 512, 8192, 2048, 256)
+    num_predict = st.sidebar.number_input("num_predict", 64, 4096, 512, 64)
 
-    max_iterations = st.sidebar.number_input("Кол-во итераций", min_value=1, max_value=5, value=2, step=1)
-    st.sidebar.write("В каждой итерации: Executor -> Critic+Praise -> Arbiter -> Executor")
+    st.sidebar.markdown("### Кол-во итераций")
+    max_iterations = st.sidebar.number_input("iterations", 1, 5, 2, 1)
 
-    user_query = st.text_input("Введите ваш запрос / задачу:")
+    # --- Основной ввод ---
+    user_query = st.text_input("Введите задачу/запрос:")
 
     if st.button("Запустить"):
+        # Определяем язык (для информации):
+        user_lang = detect_language(user_query)
+        st.markdown(f"**Определен язык пользователя:** `{user_lang}`")
+
+        # Получаем агентов
         planner = st.session_state.planner_agent
         executor = st.session_state.executor_agent
         critic = st.session_state.critic_agent
         praise = st.session_state.praise_agent
         arbiter = st.session_state.arbiter_agent
-
         if not all([planner, executor, critic, praise, arbiter]):
-            st.error("Сначала инициализируйте агентов!")
+            st.error("Агенты не инициализированы. Сначала нажмите 'Инициализировать агентов'.")
             return
 
         st.session_state.chain_trace = []
         st.session_state.final_answer = ""
 
+        # Настройки Ollama
         ollama_opts = dict(
             temperature=temperature,
             top_p=top_p,
@@ -174,140 +219,141 @@ def main():
             num_predict=num_predict
         )
 
-        # 1) PlannerAgent => initial instruction
-        st.markdown("### Шаг 1: PlannerAgent генерирует инструкцию")
+        # 1) PlannerAgent -> нач. инструкция
+        st.markdown("### Шаг 1: PlannerAgent (инструкция)")
         plan_text = ""
-        plan_placeholder = st.empty()
-
-        # Логируем PROMPT
         log_chain("PlannerAgent", "PROMPT", user_query)
-        gen_plan = planner.generate_instruction(user_query, stream=True, **ollama_opts)
-        for chunk in gen_plan:
+        plan_gen = planner.generate_instruction(user_query, stream=True, **ollama_opts)
+        # Постепенно обновляем
+        placeholder_plan = st.empty()
+        for chunk in plan_gen:
             plan_text += chunk
-            plan_placeholder.markdown(f"**Planner** (stream):\n```\n{plan_text}\n```")
+            placeholder_plan.code(plan_text, language="markdown")
             time.sleep(0.02)
-        # Логируем RESPONSE
         log_chain("PlannerAgent", "RESPONSE", plan_text)
-        st.markdown(f"**Итоговая инструкция Planner**:\n```\n{plan_text}\n```")
+
+        st.markdown("**Итоговая инструкция от Planner:**")
+        st.code(plan_text, language="markdown")
 
         current_instruction = plan_text
-        # Запускаем цикл итераций
+
+        # Запуск итераций
         for iteration in range(1, max_iterations + 1):
             st.markdown(f"## Итерация {iteration}")
 
-            # A) ExecutorAgent
-            st.markdown("### ExecutorAgent")
+            # A) Executor (финальный ответ)
+            st.markdown("### ExecutorAgent: выдает решение/обновленный ответ")
             log_chain("ExecutorAgent", "PROMPT", current_instruction)
+
             exec_text = ""
-            ex_placeholder = st.empty()
-            ex_gen = executor.execute_instruction(current_instruction, st.session_state.vector_store, stream=True, **ollama_opts)
+            placeholder_exec = st.empty()
+            ex_gen = executor.execute_instruction(
+                instruction=current_instruction,
+                vector_store=st.session_state.vector_store,
+                stream=True,
+                **ollama_opts
+            )
             if isinstance(ex_gen, str):
                 exec_text = ex_gen
-                ex_placeholder.markdown(f"**Executor** (tool):\n```\n{exec_text}\n```")
+                placeholder_exec.code(exec_text, language="markdown")
             else:
-                for c in ex_gen:
-                    exec_text += c
-                    ex_placeholder.markdown(f"**Executor** (stream):\n```\n{exec_text}\n```")
+                for ck in ex_gen:
+                    exec_text += ck
+                    placeholder_exec.code(exec_text, language="markdown")
                     time.sleep(0.02)
-            # Логируем RESP
+
             log_chain("ExecutorAgent", "RESPONSE", exec_text)
-            st.markdown(f"**Ответ Executor**:\n```\n{exec_text}\n```")
+            st.markdown("**Executor ответ:**")
+            st.code(exec_text, language="markdown")
 
-            # B) CriticAgent
-            st.markdown("### CriticAgent")
-            log_chain("CriticAgent", "PROMPT", exec_text)
+            # B) CriticAgent (нет итогового решения)
+            st.markdown("### CriticAgent (только критика)")
             cr_text = ""
-            cr_placeholder = st.empty()
+            log_chain("CriticAgent", "PROMPT", exec_text)
+            placeholder_cr = st.empty()
             cr_gen = critic.criticize(exec_text, stream=True, **ollama_opts)
-            for c in cr_gen:
-                cr_text += c
-                cr_placeholder.markdown(f"**Critic** (stream):\n```\n{cr_text}\n```")
-                time.sleep(0.02)
-            log_chain("CriticAgent", "RESPONSE", cr_text)
-            st.markdown(f"**Критика**:\n```\n{cr_text}\n```")
-
-            # C) PraiseAgent
-            st.markdown("### PraiseAgent")
-            log_chain("PraiseAgent", "PROMPT", exec_text)
-            pr_text = ""
-            pr_placeholder = st.empty()
-            pr_gen = praise.praise(exec_text, stream=True, **ollama_opts)
-            for c in pr_gen:
-                pr_text += c
-                pr_placeholder.markdown(f"**Praise** (stream):\n```\n{pr_text}\n```")
-                time.sleep(0.02)
-            log_chain("PraiseAgent", "RESPONSE", pr_text)
-            st.markdown(f"**Похвала**:\n```\n{pr_text}\n```")
-
-            # D) ArbiterAgent => ReworkInstruction (если не последняя итерация)
-            if iteration < max_iterations:
-                st.markdown("### ArbiterAgent => ReworkInstruction")
-                rework_text = ""
-                arb_placeholder = st.empty()
-                arb_prompt = f"(exec){exec_text}\n(critic){cr_text}\n(praise){pr_text}"
-                log_chain("ArbiterAgent", "PROMPT", arb_prompt)
-                arb_gen = arbiter.produce_rework_instruction(exec_text, cr_text, pr_text, stream=True, **ollama_opts)
-                for c in arb_gen:
-                    rework_text += c
-                    arb_placeholder.markdown(f"**Arbiter** (stream):\n```\n{rework_text}\n```")
-                    time.sleep(0.02)
-                log_chain("ArbiterAgent", "RESPONSE", rework_text)
-                st.markdown(f"**Rework Instruction**:\n```\n{rework_text}\n```")
-
-                # E) ExecutorAgent снова будет на след. iteration
-                current_instruction = rework_text
+            if isinstance(cr_gen, str):
+                cr_text = cr_gen
+                placeholder_cr.code(cr_text, language="markdown")
             else:
-                # Если это последняя итерация — сохраним exec_text как финальный
-                st.session_state.final_answer = exec_text
-                st.info("Достигнут предел итераций. Можно ниже дополнительно перезапустить (Arbiter->Executor), если хотите.")
-        
-        # --- После цикла ---
-        st.success("Многократный цикл завершён.")
-        # Показываем «последний результат»
-        st.markdown("## Итоговый результат после итераций")
+                for ck in cr_gen:
+                    cr_text += ck
+                    placeholder_cr.code(cr_text, language="markdown")
+                    time.sleep(0.02)
+            log_chain("CriticAgent", "RESPONSE", cr_text)
 
+            st.markdown("**Критика:**")
+            st.code(cr_text, language="markdown")
+
+            # C) PraiseAgent (нет итогового решения)
+            st.markdown("### PraiseAgent (только положительные стороны)")
+            pr_text = ""
+            log_chain("PraiseAgent", "PROMPT", exec_text)
+            placeholder_pr = st.empty()
+            pr_gen = praise.praise(exec_text, stream=True, **ollama_opts)
+            if isinstance(pr_gen, str):
+                pr_text = pr_gen
+                placeholder_pr.code(pr_text, language="markdown")
+            else:
+                for ck in pr_gen:
+                    pr_text += ck
+                    placeholder_pr.code(pr_text, language="markdown")
+                    time.sleep(0.02)
+            log_chain("PraiseAgent", "RESPONSE", pr_text)
+
+            st.markdown("**Похвала:**")
+            st.code(pr_text, language="markdown")
+
+            # D) ArbiterAgent => ReworkInstruction
+            if iteration < max_iterations:
+                st.markdown("### ArbiterAgent (ReworkInstruction, не финал)")
+                arb_text = ""
+                arb_prompt = f"Executor: {exec_text}\nCritic: {cr_text}\nPraise: {pr_text}"
+                log_chain("ArbiterAgent", "PROMPT", arb_prompt)
+                placeholder_arb = st.empty()
+                arb_gen = arbiter.produce_rework_instruction(exec_text, cr_text, pr_text, stream=True, **ollama_opts)
+                if isinstance(arb_gen, str):
+                    arb_text = arb_gen
+                    placeholder_arb.code(arb_text, language="markdown")
+                else:
+                    for ck in arb_gen:
+                        arb_text += ck
+                        placeholder_arb.code(arb_text, language="markdown")
+                        time.sleep(0.02)
+                log_chain("ArbiterAgent", "RESPONSE", arb_text)
+
+                st.markdown("**Rework Instruction от Arbiter:**")
+                st.code(arb_text, language="markdown")
+
+                current_instruction = arb_text
+            else:
+                # Последняя итерация => Executor-ответ = final_answer
+                st.session_state.final_answer = exec_text
+
+        # Завершение
+        st.success("Итерационный цикл завершён.")
+
+        st.markdown("## Итоговый ответ (ExecutorAgent)")
         if st.session_state.final_answer:
+            # Красивое окно
             st.markdown(
-                f"""
-                <div style="border:2px solid #4CAF50; padding:10px; border-radius:5px; background-color:#f9fff9;">
-                <h4>Финальный ответ:</h4>
-                <pre style="white-space:pre-wrap;">{st.session_state.final_answer}</pre>
-                </div>
+                """
+                <div style="border:2px solid #2196F3; padding:10px; border-radius:5px; background-color:#E3F2FD;">
+                <h4 style="color:#2196F3; margin-top:0;">Final Answer</h4>
                 """,
                 unsafe_allow_html=True
             )
+            st.markdown(st.session_state.final_answer, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
-            st.warning("Нет сохранённого результата (возможно, Executor вернул пустую строку).")
+            st.warning("Final answer отсутствует.")
 
-        st.markdown("---")
-        st.markdown("### Дополнительный финальный вызов (Arbiter->Executor)?")
-
-        if st.button("Сделать дополнительный Rework и финальный Executor"):
-            # 1) Арбитр генерирует ReworkInstruction (на основе final_answer, Critic/Praise)
-            #    но для упрощения — Critic/Praise у нас уже есть? 
-            #    Или можно заново запускать critic/praise? 
-            #    Здесь просто возьмём последние cr_text, pr_text
-            #    (Либо user сам редактирует cr_text/pr_text)
-            st.info("Допустим, берём последний cr_text / pr_text.")
-            # TODO: для надёжности стоило бы сохранить cr_text / pr_text в session_state.
-            # Сейчас просто скажем, что cr_text = "Нет критики" ...
-            # Для упрощения — если нужно, можно хранить "последние" в s.sate.
-
-            st.error("В данном примере упрощённо нет сохранённых cr_text/pr_text на последней итерации.")
-            st.warning("Чтобы передать свежие Critic/Praise, нужно хранить их. Здесь только шаблон логики.")
-
-            # В теории:
-            # rework_text = (Arbiter produce)
-            # exec_text_2 = (Executor)
-
-            st.info("Шаблон: здесь можно заново Arbiter->Executor.")
-        
-    st.markdown("## Chain-of-thought trace (пошаговый лог)")
+    # Показ chain-of-thought
+    st.markdown("## Chain-of-thought Trace (Markdown + Code highlighting)")
     if st.session_state.chain_trace:
         display_chain_trace()
     else:
-        st.info("Лог пуст. Запустите процесс, чтобы увидеть пошаговый вывод.")
-
+        st.info("Пока нет шагов в логе.")
 
 if __name__ == "__main__":
     main()
