@@ -70,8 +70,8 @@ multiagent_system/
 
 1. **Клонируйте проект:**
    ```bash
-   git clone https://github.com/youruser/your-repo.git
-   cd your-repo
+   git clone https://github.com/Paffin/Ollama-MultiAgent-RAG-OMAR.git
+   cd Ollama-MultiAgent-RAG-OMAR
    ```
 
 2. **Создайте и активируйте виртуальное окружение (рекомендуется):**
