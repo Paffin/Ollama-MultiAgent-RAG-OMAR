@@ -84,7 +84,7 @@ class PlannerAgent(BaseAgent):
         super().__init__(name, PLANNER_PROMPT, model_name, client)
 
     def analyze_query(self, user_query: str) -> str:
-        # Отправляем запрос к LLM для анализа намерений пользователя.
+        # Отправляем запрос к LLM для анализа намерений пользователя
         prompt = PLANNER_ANALYSIS_PROMPT.format(user_query=user_query)
         analysis = self.client.generate(prompt=prompt, model=self.model_name, stream=False)
     
@@ -92,10 +92,55 @@ class PlannerAgent(BaseAgent):
         if not isinstance(analysis, str):
             analysis = ''.join(analysis)
 
-        # Теперь можно спокойно вызвать strip()
-        if analysis.strip() == "":
-            return user_query
-        return analysis.strip()
+        # Извлекаем рекомендацию из анализа
+        recommendation_match = re.search(r'\[Рекомендация\]:\s*(\w+)', analysis)
+        if recommendation_match:
+            recommendation = recommendation_match.group(1).lower()
+            
+            # Определяем тип инструкции на основе рекомендации
+            if recommendation == 'ducksearch':
+                return f"ducksearch: {user_query}"
+            elif recommendation == 'browser':
+                return f"browser: {user_query}"
+            elif recommendation == 'search':
+                return f"search: {user_query}"
+            elif recommendation == 'cmd':
+                return f"cmd: {user_query}"
+            elif recommendation == 'ls':
+                return f"ls: {user_query}"
+            elif recommendation == 'visual':
+                return f"visual: {user_query}"
+            elif recommendation == 'complex':
+                # Разбиваем запрос на шаги
+                steps = []
+                # Разбиваем по союзам и предлогам
+                parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
+                for part in parts:
+                    part = part.strip()
+                    if part and len(part) > 2:  # Игнорируем слишком короткие части
+                        steps.append(part)
+                
+                if len(steps) > 1:
+                    # Формируем комплексное решение с полными шагами
+                    full_steps = []
+                    current_pos = 0
+                    for step in steps:
+                        # Находим позицию шага в оригинальном запросе
+                        pos = user_query.lower().find(step, current_pos)
+                        if pos != -1:
+                            # Берем оригинальный текст шага с сохранением регистра
+                            full_step = user_query[pos:pos + len(step)]
+                            full_steps.append(full_step)
+                            current_pos = pos + len(step)
+                    
+                    if full_steps:
+                        return "complex: " + "; ".join(full_steps)
+                
+            elif recommendation == 'llm':
+                return f"llm: {user_query}"
+
+        # Если не удалось определить тип инструкции, возвращаем исходный запрос
+        return user_query
 
     def generate_instruction(
         self, 
@@ -105,48 +150,22 @@ class PlannerAgent(BaseAgent):
         **ollama_opts
     ) -> Union[str, Generator[str, None, None]]:
         self.add_message("user", user_query)
-        # Предварительный анализ запроса с помощью LLM.
+        
+        # Предварительный анализ запроса с помощью LLM
         analysis = self.analyze_query(user_query)
-        # Если анализ вернул явную команду, используем её; иначе проверяем локальные данные.
-        if analysis.lower().startswith(("ducksearch:", "browser:", "llm:", "clarify:", "complex:")):
+        
+        # Если анализ вернул явную команду, используем её
+        if analysis.lower().startswith(("ducksearch:", "browser:", "llm:", "search:", "cmd:", "ls:", "visual:", "complex:")):
             plan = analysis
         else:
+            # Проверяем локальные данные
             local_hits = vector_store.search(user_query, k=1)
             if len(local_hits) == 0:
-                # Если нет локальных данных, проверяем, не требует ли запрос комплексного решения
-                if "и" in user_query.lower() or "затем" in user_query.lower() or "после" in user_query.lower():
-                    # Разбиваем запрос на шаги, учитывая союзы и предлоги
-                    steps = []
-                    # Разбиваем по союзам и предлогам
-                    parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
-                    for part in parts:
-                        part = part.strip()
-                        if part and len(part) > 2:  # Игнорируем слишком короткие части
-                            steps.append(part)
-                    
-                    if len(steps) > 1:
-                        # Формируем комплексное решение с полными шагами
-                        full_steps = []
-                        current_pos = 0
-                        for step in steps:
-                            # Находим позицию шага в оригинальном запросе
-                            pos = user_query.lower().find(step, current_pos)
-                            if pos != -1:
-                                # Берем оригинальный текст шага с сохранением регистра
-                                full_step = user_query[pos:pos + len(step)]
-                                full_steps.append(full_step)
-                                current_pos = pos + len(step)
-                        
-                        if full_steps:
-                            plan = "complex: " + "; ".join(full_steps)
-                        else:
-                            plan = f"llm: {user_query}"
-                    else:
-                        plan = f"llm: {user_query}"
-                else:
-                    plan = f"llm: {user_query}"
+                # Если нет локальных данных, используем LLM
+                plan = f"llm: {user_query}"
             else:
                 plan = user_query
+                
         self.add_message("assistant", plan)
         if not stream:
             return plan
