@@ -143,9 +143,9 @@ def main():
         # Инициализация систем
         systems = init_systems()
         
-        # Запуск Streamlit приложения
-        import streamlit.web.bootstrap as bootstrap
-        bootstrap.run("src/streamlit/app.py", "", [], {})
+        # Импортируем и запускаем приложение Streamlit
+        from streamlit.app import run
+        run(systems)
         
     except Exception as e:
         handle_error(e, "Запуск приложения")
