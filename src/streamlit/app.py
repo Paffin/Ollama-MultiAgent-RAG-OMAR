@@ -29,7 +29,7 @@ def validate_input_data(data: str) -> bool:
         return False
     return True
 
-def run(systems: Dict[str, Any]) -> None:
+def run(systems: Dict[str, Any] = None) -> None:
     """
     Запуск Streamlit приложения
     

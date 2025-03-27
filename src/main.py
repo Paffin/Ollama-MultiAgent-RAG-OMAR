@@ -4,6 +4,7 @@ from pathlib import Path
 import requests
 from typing import Dict, Any
 import time
+import streamlit as st
 
 # Настройка для Windows
 if sys.platform.startswith("win"):
@@ -45,7 +46,7 @@ from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
 from utils.cache import Cache
-import streamlit as st
+from streamlit import run as run_streamlit
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
     """
@@ -144,8 +145,8 @@ def main():
         systems = init_systems()
         
         # Запуск Streamlit приложения
-        from streamlit.app import run
-        run(systems)
+        from streamlit import run as run_streamlit
+        run_streamlit("src/streamlit/app.py", args=[systems])
         
     except Exception as e:
         handle_error(e, "Запуск приложения")
