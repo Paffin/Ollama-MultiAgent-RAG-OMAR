@@ -283,23 +283,22 @@ class ExecutorAgent(BaseAgent):
         steps = []
         goal = None
         required_data = []
+        results = []
 
         # 1) Комплексное решение (приоритетная ветка)
         if instr_lower.startswith("complex:"):
             steps = instruction.split("complex:")[1].split(";")
-            results = []
             for step in steps:
-                step = step.strip()
-                if not step:
-                    continue
-                # Рекурсивно выполняем каждый шаг
                 step_result = self.execute_instruction(
                     step,
                     vector_store,
                     stream=False,
                     **ollama_opts
                 )
-                results.append(f"Шаг: {step}\nРезультат: {step_result}\n")
+                if isinstance(step_result, str):
+                    results.append(f"Шаг: {step}\nРезультат: {step_result}\n")
+                else:
+                    results.append(f"Шаг: {step}\nРезультат: [Генератор]\n")
             
             final_result = "Результаты выполнения комплексного решения:\n\n" + "\n".join(results)
             self.add_message("assistant", final_result)
