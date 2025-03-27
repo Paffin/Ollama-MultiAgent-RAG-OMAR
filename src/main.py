@@ -118,8 +118,7 @@ def init_systems():
         
         # Инициализация Ollama клиента
         ollama_client = OllamaClient(
-            base_url=config.ollama.base_url,
-            timeout=config.ollama.timeout
+            base_url=config.ollama.base_url
         )
         
         return {
