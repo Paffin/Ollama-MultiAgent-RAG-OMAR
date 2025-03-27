@@ -16,7 +16,7 @@ class AgentChain:
         for step in self.chain:
             with st.expander(f"{step['agent']} - {step['type']}"):
                 st.write(step['content'])
-                st.caption(f"Время: {step['timestamp']}")
+                st.caption(f"Время: {step['timestamp'].strftime('%H:%M:%S')}")
 
 class AnalyticsDashboard:
     """Компонент для отображения аналитики"""
@@ -31,18 +31,18 @@ class AnalyticsDashboard:
         st.write("### Общая статистика")
         st.json(self.data['total_stats'])
         
-        # Оценки эффективности
-        st.write("### Оценки эффективности")
+        # Эффективность агентов
+        st.write("### Эффективность агентов")
         for agent, score in self.data['efficiency_scores'].items():
-            st.write(f"{agent}: {score}")
+            st.metric(agent, f"{score:.2f}")
             
         # Графики использования
-        st.write("### Графики использования")
+        st.write("### Использование агентов")
         for plot in self.data['usage_plots']:
             st.plotly_chart(plot)
             
         # Графики производительности
-        st.write("### Графики производительности")
+        st.write("### Производительность")
         for plot in self.data['performance_plots']:
             st.plotly_chart(plot)
 
@@ -57,49 +57,47 @@ class DataProcessingPanel:
         """Отображение панели обработки данных"""
         st.subheader("Обработка данных")
         
-        # Загрузка файла
-        uploaded_file = st.file_uploader("Выберите файл", type=['csv', 'json', 'yaml', 'xml'])
+        # Ввод данных
+        data = st.text_area("Введите данные для обработки")
         
-        if uploaded_file is not None:
-            try:
-                # Обработка файла
-                data = self.processor.process_file(uploaded_file)
-                
-                # Валидация
-                validation_result = self.validator.validate(data)
-                if validation_result:
-                    st.success("Данные успешно валидированы")
-                else:
-                    st.error("Ошибка валидации данных")
+        if st.button("Обработать"):
+            if data:
+                try:
+                    # Предварительная обработка
+                    processed = self.preprocessor.preprocess(data)
+                    st.write("### Предварительная обработка")
+                    st.json(processed)
                     
-                # Предварительная обработка
-                processed_data = self.preprocessor.preprocess(data)
-                
-                # Отображение результатов
-                st.write("### Результаты обработки")
-                st.json(processed_data)
-                
-            except Exception as e:
-                st.error(f"Ошибка при обработке файла: {str(e)}")
+                    # Валидация
+                    validation_result = self.validator.validate(processed)
+                    st.write("### Результаты валидации")
+                    st.json(validation_result)
+                    
+                    # Обработка
+                    result = self.processor.process(processed)
+                    st.write("### Результаты обработки")
+                    st.json(result)
+                    
+                except Exception as e:
+                    st.error(f"Ошибка обработки: {str(e)}")
+            else:
+                st.warning("Введите данные для обработки")
 
 class NotificationPanel:
     """Компонент для отображения уведомлений"""
-    def __init__(self, notification_system):
-        self.notification_system = notification_system
+    def __init__(self, notifications):
+        self.notifications = notifications
         
     def render(self):
         """Отображение уведомлений"""
         st.subheader("Уведомления")
-        
-        # Получаем уведомления
-        notifications = self.notification_system.get_notifications()
         
         # Фильтры
         col1, col2 = st.columns(2)
         with col1:
             notification_type = st.selectbox(
                 "Тип уведомления",
-                ["Все", "INFO", "WARNING", "ERROR", "SUCCESS"]
+                ["Все", "INFO", "WARNING", "ERROR", "SUCCESS", "DEBUG"]
             )
         with col2:
             priority = st.selectbox(
@@ -107,20 +105,28 @@ class NotificationPanel:
                 ["Все", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
             )
             
-        # Отображение уведомлений
+        # Список уведомлений
+        notifications = self.notifications.get_notifications()
+        
+        if notification_type != "Все":
+            notifications = [n for n in notifications if n.type == notification_type]
+            
+        if priority != "Все":
+            notifications = [n for n in notifications if n.priority == priority]
+            
         for notification in notifications:
-            if (notification_type == "Все" or notification.type == notification_type) and \
-               (priority == "Все" or notification.priority == priority):
-                with st.expander(f"{notification.type} - {notification.message}"):
-                    st.write(f"Источник: {notification.source}")
-                    st.write(f"Приоритет: {notification.priority}")
-                    st.write(f"Время: {notification.timestamp}")
-                    if notification.metadata:
-                        st.write("Метаданные:")
-                        st.json(notification.metadata)
+            with st.expander(f"{notification.message} ({notification.type})"):
+                st.write(f"Источник: {notification.source}")
+                st.write(f"Приоритет: {notification.priority}")
+                st.write(f"Время: {notification.timestamp.strftime('%H:%M:%S')}")
+                
+                if not notification.read:
+                    if st.button("Отметить как прочитанное", key=f"read_{notification.id}"):
+                        self.notifications.mark_as_read(notification.id)
+                        st.experimental_rerun()
 
 class SettingsPanel:
-    """Компонент для отображения настроек"""
+    """Компонент для управления настройками"""
     def __init__(self, config):
         self.config = config
         
@@ -130,61 +136,54 @@ class SettingsPanel:
         
         # Настройки Ollama
         st.write("### Настройки Ollama")
-        ollama_url = st.text_input(
-            "URL сервера Ollama",
-            value=self.config.ollama.base_url
-        )
-        timeout = st.number_input(
-            "Таймаут (секунды)",
-            min_value=1,
-            max_value=60,
-            value=self.config.ollama.timeout
+        base_url = st.text_input(
+            "Base URL",
+            value=self.config.get('ollama', {}).get('base_url', ''),
+            key="ollama_base_url"
         )
         
-        # Настройки агентов
-        st.write("### Настройки агентов")
-        temperature = st.slider(
-            "Температура",
-            min_value=0.0,
-            max_value=2.0,
-            value=self.config.agents.temperature,
-            step=0.1
-        )
-        top_p = st.slider(
-            "Top P",
-            min_value=0.0,
-            max_value=1.0,
-            value=self.config.agents.top_p,
-            step=0.1
+        # Настройки кэша
+        st.write("### Настройки кэша")
+        cache_enabled = st.checkbox(
+            "Включить кэш",
+            value=self.config.get('cache', {}).get('enabled', True),
+            key="cache_enabled"
         )
         
-        # Настройки обработки данных
-        st.write("### Настройки обработки данных")
-        chunk_size = st.number_input(
-            "Размер чанка",
-            min_value=100,
-            max_value=10000,
-            value=self.config.data.chunk_size,
-            step=100
+        if cache_enabled:
+            ttl = st.number_input(
+                "Время жизни кэша (секунды)",
+                min_value=1,
+                value=self.config.get('cache', {}).get('ttl', 3600),
+                key="cache_ttl"
+            )
+            
+            max_size = st.number_input(
+                "Максимальный размер кэша (МБ)",
+                min_value=1,
+                value=self.config.get('cache', {}).get('max_size', 100),
+                key="cache_max_size"
+            )
+            
+        # Настройки логирования
+        st.write("### Настройки логирования")
+        log_level = st.selectbox(
+            "Уровень логирования",
+            ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            index=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].index(
+                self.config.get('logging', {}).get('level', 'INFO')
+            ),
+            key="log_level"
         )
         
-        # Кнопка сохранения
         if st.button("Сохранить настройки"):
-            try:
-                self.config.update_config(
-                    ConfigSection.OLLAMA,
-                    base_url=ollama_url,
-                    timeout=timeout
-                )
-                self.config.update_config(
-                    ConfigSection.AGENTS,
-                    temperature=temperature,
-                    top_p=top_p
-                )
-                self.config.update_config(
-                    ConfigSection.DATA,
-                    chunk_size=chunk_size
-                )
-                st.success("Настройки успешно сохранены")
-            except Exception as e:
-                st.error(f"Ошибка при сохранении настроек: {str(e)}") 
+            # Обновляем конфигурацию
+            self.config.set('ollama.base_url', base_url)
+            self.config.set('cache.enabled', cache_enabled)
+            if cache_enabled:
+                self.config.set('cache.ttl', ttl)
+                self.config.set('cache.max_size', max_size)
+            self.config.set('logging.level', log_level)
+            
+            st.success("Настройки сохранены")
+            st.experimental_rerun() 

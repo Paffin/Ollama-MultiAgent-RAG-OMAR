@@ -102,7 +102,7 @@ def run(systems: Dict[str, Any]) -> None:
                         log_chain("data_processor", "validation", "Валидация данных успешно завершена")
                         
                         # Обновление метрик агентов
-                        systems['agent_analytics'].update_usage_stats(
+                        systems['analytics'].update_usage_stats(
                             agent_name="planner",
                             success=True,
                             response_time=(datetime.now() - start_time).total_seconds(),
@@ -133,13 +133,13 @@ def run(systems: Dict[str, Any]) -> None:
         with tab2:
             # Аналитика
             analytics_data = {
-                'total_stats': systems['agent_analytics'].get_all_stats(),
+                'total_stats': systems['analytics'].get_all_stats(),
                 'efficiency_scores': {
-                    agent: systems['agent_analytics'].get_efficiency_score(agent)
-                    for agent in systems['agent_analytics'].get_all_stats()
+                    agent: systems['analytics'].get_efficiency_score(agent)
+                    for agent in systems['analytics'].get_all_stats()
                 },
-                'usage_plots': systems['agent_analytics'].generate_usage_plots(),
-                'performance_plots': systems['agent_analytics'].generate_performance_plots()
+                'usage_plots': systems['analytics'].generate_usage_plots(),
+                'performance_plots': systems['analytics'].generate_performance_plots()
             }
             AnalyticsDashboard(analytics_data).render()
             
@@ -156,7 +156,7 @@ def run(systems: Dict[str, Any]) -> None:
             SettingsPanel(systems['config']).render()
             
         # Панель уведомлений
-        NotificationPanel(systems['notification_system']).render()
+        NotificationPanel(systems['notifications']).render()
         
     except Exception as e:
         logger.error(f"Ошибка в Streamlit приложении: {str(e)}")
@@ -164,6 +164,9 @@ def run(systems: Dict[str, Any]) -> None:
 
 def log_chain(agent_name: str, step_type: str, content: str):
     """Логирование шага в цепочке агентов"""
+    if 'agent_chain' not in st.session_state:
+        st.session_state.agent_chain = []
+        
     st.session_state.agent_chain.append({
         'agent': agent_name,
         'type': step_type,
@@ -171,11 +174,15 @@ def log_chain(agent_name: str, step_type: str, content: str):
         'timestamp': datetime.now()
     })
     
-def add_notification(message: str, type: str = "info", source: str = "system", priority: int = 3):
+def add_notification(message: str, type: str, source: str, priority: int):
     """Добавление уведомления"""
-    st.session_state.notification_system.add_notification(
-        message=message,
-        type=type,
-        source=source,
-        priority=priority
-    ) 
+    if 'notifications' not in st.session_state:
+        st.session_state.notifications = []
+        
+    st.session_state.notifications.append({
+        'message': message,
+        'type': type,
+        'source': source,
+        'priority': priority,
+        'timestamp': datetime.now()
+    }) 
