@@ -29,37 +29,54 @@ def validate_input_data(data: str) -> bool:
         return False
     return True
 
-def run(systems: Dict[str, Any] = None) -> None:
+def run_app(systems: Dict[str, Any] = None) -> None:
     """
     Запуск Streamlit приложения
     
     Args:
         systems: Словарь с инициализированными системами
     """
-    st.set_page_config(
-        page_title="OMAR - Multi-Agent RAG System",
-        page_icon="🤖",
-        layout="wide"
-    )
-    
-    st.title("OMAR - Multi-Agent RAG System")
-    
-    # Инициализация компонентов
-    agent_chain = AgentChain(systems)
-    analytics_dashboard = AnalyticsDashboard(systems)
-    data_panel = DataProcessingPanel(systems)
-    notification_panel = NotificationPanel(systems)
-    settings_panel = SettingsPanel(systems)
-    
-    # Отображение компонентов
-    with st.sidebar:
-        settings_panel.render()
-        notification_panel.render()
-    
-    with st.main():
-        agent_chain.render()
-        analytics_dashboard.render()
-        data_panel.render()
+    try:
+        # Настройка страницы
+        st.set_page_config(
+            page_title="OMAR - Multi-Agent RAG System",
+            page_icon="🤖",
+            layout="wide"
+        )
+        
+        # Инициализация состояния сессии
+        if 'agent_chain' not in st.session_state:
+            st.session_state.agent_chain = []
+        if 'notifications' not in st.session_state:
+            st.session_state.notifications = []
+            
+        # Заголовок
+        st.title("OMAR - Multi-Agent RAG System")
+        
+        # Инициализация компонентов
+        agent_chain = AgentChain(st.session_state.agent_chain)
+        analytics_dashboard = AnalyticsDashboard(systems['analytics'].get_all_stats())
+        data_panel = DataProcessingPanel(
+            systems['data_processor'],
+            systems['data_validator'],
+            systems['data_preprocessor']
+        )
+        notification_panel = NotificationPanel(st.session_state.notifications)
+        settings_panel = SettingsPanel(systems['config'])
+        
+        # Отображение компонентов
+        with st.sidebar:
+            settings_panel.render()
+            notification_panel.render()
+        
+        with st.main():
+            agent_chain.render()
+            analytics_dashboard.render()
+            data_panel.render()
+            
+    except Exception as e:
+        logger.error(f"Ошибка в Streamlit приложении: {str(e)}")
+        st.error(f"Произошла ошибка: {str(e)}")
 
 def log_chain(agent_name: str, step_type: str, content: str):
     """Логирование шага в цепочке агентов"""
@@ -87,4 +104,4 @@ def add_notification(message: str, type: str, source: str, priority: int):
     })
 
 if __name__ == "__main__":
-    run() 
+    run_app() 
