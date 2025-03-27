@@ -39,6 +39,7 @@ from notifications import NotificationSystem
 from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
+from utils.cache import Cache
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
     """
@@ -80,105 +81,40 @@ def validate_config(config: Dict[str, Any]) -> bool:
     return True
 
 def init_systems():
-    """Инициализация всех систем"""
+    """Инициализация систем"""
     try:
-        # Загрузка конфигурации
+        # Инициализация конфигурации
         config = ConfigManager()
         
         # Валидация конфигурации
-        if not validate_config(config.config):
-            raise ValueError("Некорректная конфигурация")
-        
+        if not validate_config(config.get_config_dict()):
+            raise ConfigurationError("Ошибка валидации конфигурации")
+            
         # Инициализация логгера
         logger = Logger()
-        logger.info("Инициализация систем")
         
-        # Проверка доступности сервера Ollama
-        ollama_url = config.config.ollama.url
-        if not check_ollama_server(ollama_url):
-            raise ConnectionError(f"Сервер Ollama недоступен по адресу: {ollama_url}")
-        
-        # Инициализация клиента Ollama
-        try:
-            ollama_client = OllamaClient(ollama_url)
-        except Exception as e:
-            raise ConnectionError(f"Ошибка при подключении к Ollama: {e}")
-        
-        # Инициализация хранилища векторов
-        try:
-            vector_store = SimpleVectorStore()
-        except Exception as e:
-            raise RuntimeError(f"Ошибка при инициализации хранилища векторов: {e}")
-        
-        # Инициализация агентов
-        agents = {}
-        agent_configs = {
-            "planner": (PlannerAgent, "Planner"),
-            "executor": (ExecutorAgent, "Executor"),
-            "critic": (CriticAgent, "Critic"),
-            "praise": (PraiseAgent, "Praise"),
-            "arbiter": (ArbiterAgent, "Arbiter")
-        }
-        
-        for agent_type, (agent_class, name) in agent_configs.items():
-            try:
-                agents[agent_type] = agent_class(
-                    name=name,
-                    model_name=config.config.agents.get(agent_type, {}).get('model', 'llama2'),
-                    client=ollama_client
-                )
-            except Exception as e:
-                raise RuntimeError(f"Ошибка при инициализации агента {name}: {e}")
-        
-        # Инициализация систем обработки данных
-        try:
-            data_processor = DataProcessor()
-            data_validator = DataValidator()
-            data_preprocessor = DataPreprocessor()
-            streaming_processor = StreamingProcessor()
-        except Exception as e:
-            raise RuntimeError(f"Ошибка при инициализации систем обработки данных: {e}")
-        
-        # Инициализация аналитики
-        try:
-            agent_analytics = AgentAnalytics()
-        except Exception as e:
-            raise RuntimeError(f"Ошибка при инициализации аналитики: {e}")
+        # Инициализация кэша
+        cache = Cache(
+            ttl_seconds=config.cache.ttl_seconds,
+            max_size_mb=config.cache.max_size_mb
+        )
         
         # Инициализация системы уведомлений
-        try:
-            notification_system = NotificationSystem()
-        except Exception as e:
-            raise RuntimeError(f"Ошибка при инициализации системы уведомлений: {e}")
+        notifications = NotificationSystem()
         
-        # Инициализация генератора отчетов
-        try:
-            report_generator = ReportGenerator(agent_analytics)
-        except Exception as e:
-            raise RuntimeError(f"Ошибка при инициализации генератора отчетов: {e}")
+        # Инициализация аналитики
+        analytics = AgentAnalytics()
         
-        # Инициализация предсказательной аналитики
-        try:
-            predictive_analytics = PredictiveAnalytics()
-        except Exception as e:
-            raise RuntimeError(f"Ошибка при инициализации предсказательной аналитики: {e}")
-        
-        logger.info("Все системы успешно инициализированы")
+        # Инициализация обработчика данных
+        data_processor = DataProcessor()
         
         return {
-            "config": config,
-            "logger": logger,
-            "ollama_client": ollama_client,
-            "vector_store": vector_store,
-            "agents": agents,
-            "data_processor": data_processor,
-            "data_validator": data_validator,
-            "data_preprocessor": data_preprocessor,
-            "streaming_processor": streaming_processor,
-            "agent_analytics": agent_analytics,
-            "notification_system": notification_system,
-            "report_generator": report_generator,
-            "predictive_analytics": predictive_analytics
+            'config': config,
+            'logger': logger,
+            'cache': cache,
+            'notifications': notifications,
+            'analytics': analytics,
+            'data_processor': data_processor
         }
         
     except Exception as e:

@@ -194,7 +194,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
                 
         # Проверяем параметры Ollama
         ollama_config = config['ollama']
-        required_ollama_params = ['host', 'model', 'temperature', 'top_p', 'max_tokens', 'context_window']
+        required_ollama_params = ['base_url', 'timeout', 'models']
         for param in required_ollama_params:
             if param not in ollama_config:
                 logger.error(f"Отсутствует обязательный параметр Ollama: {param}")
@@ -202,10 +202,10 @@ def validate_config(config: Dict[str, Any]) -> bool:
                 
         # Проверяем параметры агентов
         agents_config = config['agents']
-        required_agents = ['planner', 'executor', 'critic', 'praise', 'arbiter']
-        for agent in required_agents:
-            if agent not in agents_config:
-                logger.error(f"Отсутствует конфигурация агента: {agent}")
+        required_agents_params = ['temperature', 'top_p', 'max_tokens', 'context_window']
+        for param in required_agents_params:
+            if param not in agents_config:
+                logger.error(f"Отсутствует обязательный параметр агентов: {param}")
                 return False
                 
         # Проверяем параметры данных
@@ -218,7 +218,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
                 
         # Проверяем параметры уведомлений
         notifications_config = config['notifications']
-        required_notification_params = ['retention_days', 'max_notifications', 'auto_cleanup', 'display_format']
+        required_notification_params = ['max_history', 'priority_levels', 'categories']
         for param in required_notification_params:
             if param not in notifications_config:
                 logger.error(f"Отсутствует обязательный параметр уведомлений: {param}")
@@ -226,7 +226,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
                 
         # Проверяем параметры аналитики
         analytics_config = config['analytics']
-        required_analytics_params = ['metrics_retention_days', 'prediction_horizon_days', 'update_interval_minutes']
+        required_analytics_params = ['metrics_history_size', 'prediction_window', 'confidence_threshold']
         for param in required_analytics_params:
             if param not in analytics_config:
                 logger.error(f"Отсутствует обязательный параметр аналитики: {param}")

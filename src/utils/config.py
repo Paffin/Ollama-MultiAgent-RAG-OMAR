@@ -29,6 +29,8 @@ class ConfigSection(str, Enum):
     DATA = "data"
     ANALYTICS = "analytics"
     NOTIFICATIONS = "notifications"
+    LOGGING = "logging"
+    CACHE = "cache"
 
 T = TypeVar('T')
 
@@ -125,6 +127,37 @@ class NotificationConfig:
             raise ValidationError("categories не может быть пустым")
 
 @dataclass
+class LoggingConfig:
+    """Конфигурация логирования"""
+    level: str = "INFO"
+    file_path: str = "logs/omar.log"
+    max_file_size_mb: int = 10
+    backup_count: int = 5
+
+    def validate(self) -> None:
+        """Валидация конфигурации"""
+        if not self.level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+            raise ValidationError("level должен быть одним из: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+        if self.max_file_size_mb <= 0:
+            raise ValidationError("max_file_size_mb должен быть положительным числом")
+        if self.backup_count <= 0:
+            raise ValidationError("backup_count должен быть положительным числом")
+
+@dataclass
+class CacheConfig:
+    """Конфигурация кэширования"""
+    enabled: bool = True
+    ttl_seconds: int = 3600
+    max_size_mb: int = 100
+
+    def validate(self) -> None:
+        """Валидация конфигурации"""
+        if self.ttl_seconds <= 0:
+            raise ValidationError("ttl_seconds должен быть положительным числом")
+        if self.max_size_mb <= 0:
+            raise ValidationError("max_size_mb должен быть положительным числом")
+
+@dataclass
 class AppConfig:
     theme: str = "light"
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
@@ -140,6 +173,8 @@ class ConfigManager:
     data: DataConfig = field(default_factory=DataConfig)
     analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
     notifications: NotificationConfig = field(default_factory=NotificationConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
     
     def __post_init__(self) -> None:
         """Инициализация после создания объекта"""
@@ -154,6 +189,8 @@ class ConfigManager:
             self.data.validate()
             self.analytics.validate()
             self.notifications.validate()
+            self.logging.validate()
+            self.cache.validate()
         except ValidationError as e:
             raise ValidationError(f"Ошибка валидации конфигурации: {e}")
         
@@ -164,7 +201,9 @@ class ConfigManager:
             ConfigSection.AGENTS: AgentConfig,
             ConfigSection.DATA: DataConfig,
             ConfigSection.ANALYTICS: AnalyticsConfig,
-            ConfigSection.NOTIFICATIONS: NotificationConfig
+            ConfigSection.NOTIFICATIONS: NotificationConfig,
+            ConfigSection.LOGGING: LoggingConfig,
+            ConfigSection.CACHE: CacheConfig
         }
         return config_classes[section]
         
@@ -245,4 +284,16 @@ class ConfigManager:
         try:
             return getattr(self, section).__dict__
         except Exception as e:
-            raise ConfigError(f"Ошибка при получении конфигурации {section}: {e}") 
+            raise ConfigError(f"Ошибка при получении конфигурации {section}: {e}")
+            
+    def get_config_dict(self) -> Dict[str, Any]:
+        """
+        Получение всей конфигурации в виде словаря
+        
+        Returns:
+            Словарь со всей конфигурацией
+        """
+        return {
+            section: getattr(self, section).__dict__
+            for section in ConfigSection
+        } 
