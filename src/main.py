@@ -13,6 +13,11 @@ if sys.platform.startswith("win"):
 import nest_asyncio
 nest_asyncio.apply()
 
+# Добавляем путь к src в PYTHONPATH
+src_path = str(Path(__file__).parent)
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
 # Импорты из нашего пакета
 from utils.config import ConfigManager
 from utils.logger import Logger
