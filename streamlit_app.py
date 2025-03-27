@@ -148,8 +148,20 @@ def main():
     num_ctx = st.sidebar.number_input("num_ctx", 512, 10000, 10000, 256)
     num_predict = st.sidebar.number_input("num_predict", 64, 4096, 512, 64)
 
-    st.sidebar.markdown("### Кол-во итераций")
-    max_iterations = st.sidebar.number_input("iterations", 1, 5, 2, 1)
+    st.sidebar.markdown("### Настройки итераций")
+    iteration_mode = st.sidebar.radio(
+        "Режим итераций",
+        ["Фиксированное количество", "Динамическое (по качеству)", "Динамическое (по улучшению)"]
+    )
+    
+    if iteration_mode == "Фиксированное количество":
+        max_iterations = st.sidebar.number_input("Количество итераций", 1, 5, 2, 1)
+    elif iteration_mode == "Динамическое (по качеству)":
+        quality_threshold = st.sidebar.slider("Порог качества", 0.0, 1.0, 0.8, 0.05)
+        max_iterations = 5  # Максимальное количество итераций
+    else:  # Динамическое (по улучшению)
+        improvement_threshold = st.sidebar.slider("Порог улучшения", 0.0, 1.0, 0.1, 0.05)
+        max_iterations = 5  # Максимальное количество итераций
 
     # --- Основной ввод ---
     user_query = st.text_input("Введите задачу/запрос:")
@@ -201,9 +213,12 @@ def main():
         st.code(plan_text, language="markdown")
 
         current_instruction = plan_text
+        current_quality = 0.0
+        previous_quality = 0.0
+        iteration = 1
+        should_continue = True
 
-        # Итерации
-        for iteration in range(1, max_iterations + 1):
+        while iteration <= max_iterations and should_continue:
             st.markdown(f"## Итерация {iteration}")
 
             # ExecutorAgent
@@ -230,44 +245,59 @@ def main():
             st.markdown("**Executor ответ:**")
             st.code(exec_text, language="markdown")
 
-            # CriticAgent
-            st.markdown("### CriticAgent")
-            cr_text = ""
-            log_chain("CriticAgent", "PROMPT", exec_text)
-            placeholder_cr = st.empty()
-            cr_gen = critic.criticize(exec_text, stream=True, **ollama_opts)
-            if isinstance(cr_gen, str):
-                cr_text = cr_gen
-                placeholder_cr.code(cr_text, language="markdown")
-            else:
-                for ck in cr_gen:
-                    cr_text += ck
+            # Оценка качества ответа
+            current_quality = executor.evaluate_response_quality(exec_text)
+            st.markdown(f"**Качество ответа:** {current_quality:.2f}")
+
+            # Проверка необходимости продолжения итераций
+            if iteration_mode == "Динамическое (по качеству)":
+                should_continue = current_quality < quality_threshold
+            elif iteration_mode == "Динамическое (по улучшению)":
+                improvement = current_quality - previous_quality
+                should_continue = improvement > improvement_threshold
+                st.markdown(f"**Улучшение:** {improvement:.2f}")
+            
+            previous_quality = current_quality
+
+            # Если не последняя итерация и нужно продолжать
+            if iteration < max_iterations and should_continue:
+                # CriticAgent
+                st.markdown("### CriticAgent")
+                cr_text = ""
+                log_chain("CriticAgent", "PROMPT", exec_text)
+                placeholder_cr = st.empty()
+                cr_gen = critic.criticize(exec_text, stream=True, **ollama_opts)
+                if isinstance(cr_gen, str):
+                    cr_text = cr_gen
                     placeholder_cr.code(cr_text, language="markdown")
-                    time.sleep(0.02)
-            log_chain("CriticAgent", "RESPONSE", cr_text)
-            st.markdown("**Критика:**")
-            st.code(cr_text, language="markdown")
+                else:
+                    for ck in cr_gen:
+                        cr_text += ck
+                        placeholder_cr.code(cr_text, language="markdown")
+                        time.sleep(0.02)
+                log_chain("CriticAgent", "RESPONSE", cr_text)
+                st.markdown("**Критика:**")
+                st.code(cr_text, language="markdown")
 
-            # PraiseAgent
-            st.markdown("### PraiseAgent")
-            pr_text = ""
-            log_chain("PraiseAgent", "PROMPT", exec_text)
-            placeholder_pr = st.empty()
-            pr_gen = praise.praise(exec_text, stream=True, **ollama_opts)
-            if isinstance(pr_gen, str):
-                pr_text = pr_gen
-                placeholder_pr.code(pr_text, language="markdown")
-            else:
-                for ck in pr_gen:
-                    pr_text += ck
+                # PraiseAgent
+                st.markdown("### PraiseAgent")
+                pr_text = ""
+                log_chain("PraiseAgent", "PROMPT", exec_text)
+                placeholder_pr = st.empty()
+                pr_gen = praise.praise(exec_text, stream=True, **ollama_opts)
+                if isinstance(pr_gen, str):
+                    pr_text = pr_gen
                     placeholder_pr.code(pr_text, language="markdown")
-                    time.sleep(0.02)
-            log_chain("PraiseAgent", "RESPONSE", pr_text)
-            st.markdown("**Похвала:**")
-            st.code(pr_text, language="markdown")
+                else:
+                    for ck in pr_gen:
+                        pr_text += ck
+                        placeholder_pr.code(pr_text, language="markdown")
+                        time.sleep(0.02)
+                log_chain("PraiseAgent", "RESPONSE", pr_text)
+                st.markdown("**Похвала:**")
+                st.code(pr_text, language="markdown")
 
-            # ArbiterAgent (ReworkInstruction)
-            if iteration < max_iterations:
+                # ArbiterAgent (ReworkInstruction)
                 st.markdown("### ArbiterAgent (Rework Instruction)")
                 arb_text = ""
                 arb_prompt = f"Executor: {exec_text}\nCritic: {cr_text}\nPraise: {pr_text}"
@@ -288,6 +318,13 @@ def main():
                 current_instruction = arb_text
             else:
                 st.session_state.final_answer = exec_text
+
+            iteration += 1
+
+        if iteration > max_iterations:
+            st.warning("Достигнуто максимальное количество итераций.")
+        elif not should_continue:
+            st.success("Достигнут целевой показатель качества/улучшения.")
 
         st.success("Итерации завершены.")
 

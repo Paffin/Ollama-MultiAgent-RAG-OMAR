@@ -34,6 +34,43 @@ class BaseAgent:
             parts.append(f"{msg['role'].upper()}: {msg['content']}\n")
         return "\n".join(parts)
 
+    def evaluate_response_quality(self, response: str) -> float:
+        """
+        Оценивает качество ответа по шкале от 0 до 1.
+        """
+        evaluation_prompt = f"""
+        Оцени качество следующего ответа по шкале от 0 до 1, где:
+        0 - полностью неудовлетворительный ответ
+        1 - идеальный ответ
+        
+        Критерии оценки:
+        1. Полнота ответа (все ли аспекты запроса учтены)
+        2. Точность информации
+        3. Структурированность и читаемость
+        4. Полезность и практическая применимость
+        5. Отсутствие ошибок и неточностей
+        
+        Ответ для оценки:
+        {response}
+        
+        Оценка (только число от 0 до 1):
+        """
+        
+        try:
+            evaluation = self.client.generate(
+                prompt=evaluation_prompt,
+                model=self.model_name,
+                stream=False
+            )
+            if not isinstance(evaluation, str):
+                evaluation = ''.join(evaluation)
+            
+            # Извлекаем число из ответа
+            score = float(re.search(r'0\.\d+|1\.0|1', evaluation).group())
+            return min(max(score, 0.0), 1.0)  # Ограничиваем диапазон
+        except:
+            return 0.5  # Возвращаем среднее значение в случае ошибки
+
 class PlannerAgent(BaseAgent):
     """
     PlannerAgent теперь выполняет предварительный анализ запроса с использованием LLM.
