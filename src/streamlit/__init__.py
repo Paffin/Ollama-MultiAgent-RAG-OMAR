@@ -10,9 +10,11 @@ from .components import (
     NotificationPanel,
     SettingsPanel
 )
+from .app import run_app
 
 __all__ = [
     'st',
+    'run_app',
     'AgentChain',
     'AnalyticsDashboard',
     'DataProcessingPanel',

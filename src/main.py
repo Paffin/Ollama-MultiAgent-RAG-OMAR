@@ -46,7 +46,7 @@ from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
 from utils.cache import Cache
-from streamlit.app import run_app
+from streamlit import run_app
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
     """

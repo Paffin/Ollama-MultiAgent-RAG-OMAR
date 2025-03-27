@@ -1,7 +1,15 @@
 import streamlit as st
 from datetime import datetime
 from typing import Dict, Any
-from .components import (
+import sys
+from pathlib import Path
+
+# Добавляем путь к src в PYTHONPATH
+src_path = str(Path(__file__).parent.parent)
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
+from streamlit.components import (
     AgentChain,
     AnalyticsDashboard,
     DataProcessingPanel,
