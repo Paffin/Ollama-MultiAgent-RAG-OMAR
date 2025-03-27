@@ -275,7 +275,195 @@ class ExecutorAgent(BaseAgent):
                 )
                 return gen
 
-        # 3) DuckDuckGo поиск с агрегацией
+        # 3) Умное взаимодействие с браузером
+        elif instr_lower.startswith("browser:"):
+            browser_out = ""
+            br = PlaywrightBrowser(headless=True)
+            br.launch()
+            try:
+                # Анализируем запрос для определения действий
+                analysis_prompt = f"""
+                Проанализируй запрос пользователя и определи необходимые действия в браузере:
+                {instruction}
+                
+                Формат ответа:
+                [Цель]: краткое описание цели
+                [Шаги]: список шагов для достижения цели
+                [Требуемые данные]: какие данные нужно собрать или ввести
+                """
+                
+                analysis = self.client.generate(
+                    prompt=analysis_prompt,
+                    model=self.model_name,
+                    stream=False,
+                    **ollama_opts
+                )
+                
+                if not isinstance(analysis, str):
+                    analysis = ''.join(analysis)
+                
+                browser_out += f"Анализ запроса:\n{analysis}\n\n"
+                
+                # Извлекаем цель и шаги
+                goal_match = re.search(r'\[Цель\]:\s*(.*?)(?=\[|$)', analysis)
+                steps_match = re.search(r'\[Шаги\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+                data_match = re.search(r'\[Требуемые данные\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+                
+                if goal_match:
+                    goal = goal_match.group(1).strip()
+                    browser_out += f"Цель: {goal}\n\n"
+                
+                if steps_match:
+                    steps = [s.strip() for s in steps_match.group(1).split('\n') if s.strip()]
+                    browser_out += "Шаги:\n"
+                    for i, step in enumerate(steps, 1):
+                        browser_out += f"{i}. {step}\n"
+                    browser_out += "\n"
+                
+                if data_match:
+                    required_data = [d.strip() for d in data_match.group(1).split('\n') if d.strip()]
+                    browser_out += "Требуемые данные:\n"
+                    for data in required_data:
+                        browser_out += f"- {data}\n"
+                    browser_out += "\n"
+                
+                # Выполняем шаги
+                for i, step in enumerate(steps, 1):
+                    browser_out += f"\nВыполнение шага {i}: {step}\n"
+                    
+                    # Анализируем текущую страницу
+                    page_analysis = br.analyze_page()
+                    browser_out += f"Анализ страницы:\n{page_analysis}\n"
+                    
+                    # Определяем действие для текущего шага
+                    action_prompt = f"""
+                    На основе текущего шага и анализа страницы определи следующее действие:
+                    
+                    Шаг: {step}
+                    Анализ страницы: {page_analysis}
+                    
+                    Возможные действия:
+                    1. Переход по URL
+                    2. Поиск и клик по элементу
+                    3. Ввод текста в поле
+                    4. Ожидание появления элемента
+                    5. Прокрутка страницы
+                    6. Сбор данных
+                    
+                    Формат ответа:
+                    [Действие]: тип действия
+                    [Селектор]: CSS-селектор элемента (если применимо)
+                    [Значение]: значение для ввода (если применимо)
+                    [Обоснование]: почему выбрано это действие
+                    """
+                    
+                    action_analysis = self.client.generate(
+                        prompt=action_prompt,
+                        model=self.model_name,
+                        stream=False,
+                        **ollama_opts
+                    )
+                    
+                    if not isinstance(action_analysis, str):
+                        action_analysis = ''.join(action_analysis)
+                    
+                    browser_out += f"Анализ действия:\n{action_analysis}\n"
+                    
+                    # Извлекаем параметры действия
+                    action_match = re.search(r'\[Действие\]:\s*(\w+)', action_analysis)
+                    selector_match = re.search(r'\[Селектор\]:\s*(.*?)(?=\[|$)', action_analysis)
+                    value_match = re.search(r'\[Значение\]:\s*(.*?)(?=\[|$)', action_analysis)
+                    
+                    if action_match:
+                        action = action_match.group(1).lower()
+                        
+                        if action == 'url':
+                            if value_match:
+                                url = value_match.group(1).strip()
+                                br.goto(url)
+                                browser_out += f"Переход по URL: {url}\n"
+                        
+                        elif action == 'click':
+                            if selector_match:
+                                selector = selector_match.group(1).strip()
+                                try:
+                                    br.click(selector)
+                                    browser_out += f"Клик по элементу: {selector}\n"
+                                except Exception as e:
+                                    browser_out += f"Ошибка при клике: {e}\n"
+                        
+                        elif action == 'type':
+                            if selector_match and value_match:
+                                selector = selector_match.group(1).strip()
+                                value = value_match.group(1).strip()
+                                try:
+                                    br.type_text(selector, value)
+                                    browser_out += f"Ввод текста в {selector}: {value}\n"
+                                except Exception as e:
+                                    browser_out += f"Ошибка при вводе текста: {e}\n"
+                        
+                        elif action == 'wait':
+                            if selector_match:
+                                selector = selector_match.group(1).strip()
+                                try:
+                                    br.wait_for_selector(selector)
+                                    browser_out += f"Ожидание элемента: {selector}\n"
+                                except Exception as e:
+                                    browser_out += f"Ошибка при ожидании: {e}\n"
+                        
+                        elif action == 'scroll':
+                            if selector_match:
+                                selector = selector_match.group(1).strip()
+                                try:
+                                    br.scroll_to(selector)
+                                    browser_out += f"Прокрутка к элементу: {selector}\n"
+                                except Exception as e:
+                                    browser_out += f"Ошибка при прокрутке: {e}\n"
+                        
+                        elif action == 'collect':
+                            if selector_match:
+                                selector = selector_match.group(1).strip()
+                                try:
+                                    value = br.get_text(selector)
+                                    browser_out += f"Собраны данные: {value}\n"
+                                except Exception as e:
+                                    browser_out += f"Ошибка при сборе данных: {e}\n"
+                    
+                    # Ожидаем загрузки страницы после действия
+                    br.wait_for_navigation()
+                
+                # Проверяем успешность выполнения
+                success_prompt = f"""
+                Проверь, достигнута ли цель:
+                Цель: {goal}
+                Текущий URL: {br.get_current_url()}
+                Заголовок страницы: {br.get_page_title()}
+                
+                Формат ответа:
+                [Успех]: да/нет
+                [Причина]: объяснение
+                [Следующие шаги]: что нужно сделать дальше
+                """
+                
+                success_analysis = self.client.generate(
+                    prompt=success_prompt,
+                    model=self.model_name,
+                    stream=False,
+                    **ollama_opts
+                )
+                
+                if not isinstance(success_analysis, str):
+                    success_analysis = ''.join(success_analysis)
+                
+                browser_out += f"\nАнализ результата:\n{success_analysis}\n"
+                
+            finally:
+                br.close()
+            
+            self.add_message("assistant", browser_out)
+            return browser_out
+
+        # 4) DuckDuckGo поиск с агрегацией
         elif instr_lower.startswith("ducksearch:"):
             search_query = instruction.split("ducksearch:")[1].strip()
             tool_out = "Результаты поиска в DuckDuckGo:\n"
@@ -334,7 +522,7 @@ class ExecutorAgent(BaseAgent):
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 4) Локальный поиск через RAG
+        # 5) Локальный поиск через RAG
         elif instr_lower.startswith("search:"):
             query = instruction.split("search:")[1].strip()
             found_docs = vector_store.search(query, k=3)
@@ -344,73 +532,19 @@ class ExecutorAgent(BaseAgent):
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 5) Системная команда
+        # 6) Системная команда
         elif instr_lower.startswith("cmd:"):
             cmd_text = instruction.split("cmd:")[1].strip()
             tool_out = run_system_command(cmd_text)
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 6) Просмотр директории
+        # 7) Просмотр директории
         elif instr_lower.startswith("ls:"):
             path = instruction.split("ls:")[1].strip()
             tool_out = list_directory(path)
             self.add_message("assistant", tool_out)
             return tool_out
-
-        # 7) Действия в браузере
-        elif instr_lower.startswith("browser:"):
-            browser_out = ""
-            actions = instruction.split("browser:")[1].split(";")
-            br = PlaywrightBrowser(headless=True)
-            br.launch()
-            try:
-                for act in actions:
-                    act = act.strip()
-                    if act.startswith("open url="):
-                        url = act.replace("open url=", "").strip()
-                        br.goto(url)
-                        browser_out += f"Открыли URL: {url}\n"
-                    elif act.startswith("screenshot path="):
-                        sc_path = act.replace("screenshot path=", "").strip()
-                        path_taken = br.screenshot(path=sc_path)
-                        browser_out += f"Скриншот сохранён в {path_taken}\n"
-                    elif act.startswith("click selector="):
-                        sel = act.replace("click selector=", "").strip()
-                        br.click(sel)
-                        browser_out += f"Кликнули по селектору {sel}\n"
-                    elif act.startswith("type selector="):
-                        parts = act.split(",")
-                        if len(parts) == 2:
-                            sel_part = parts[0].replace("type selector=", "").strip()
-                            text_part = parts[1].replace("text=", "").strip()
-                            br.type_text(sel_part, text_part)
-                            browser_out += f"В селектор {sel_part} введён текст {text_part}\n"
-                    elif act.startswith("parse selector="):
-                        sel = act.replace("parse selector=", "").strip()
-                        try:
-                            parsed_text = br.page.inner_text(sel)
-                            browser_out += f"Текст из {sel}: {parsed_text}\n"
-                        except Exception as e:
-                            browser_out += f"Ошибка при извлечении текста по селектору {sel}: {e}\n"
-                    elif act.startswith("wait selector="):
-                        sel = act.replace("wait selector=", "").strip()
-                        try:
-                            br.page.wait_for_selector(sel, timeout=5000)
-                            browser_out += f"Ожидание селектора {sel} завершено\n"
-                        except Exception as e:
-                            browser_out += f"Ошибка при ожидании селектора {sel}: {e}\n"
-                    elif act.startswith("scroll to="):
-                        sel = act.replace("scroll to=", "").strip()
-                        try:
-                            br.page.evaluate(f"document.querySelector('{sel}').scrollIntoView()")
-                            browser_out += f"Прокрутка к элементу {sel}\n"
-                        except Exception as e:
-                            browser_out += f"Ошибка при прокрутке к {sel}: {e}\n"
-            finally:
-                br.close()
-            self.add_message("assistant", browser_out)
-            return browser_out
 
         # 8) Анализ визуального содержимого через LLaVA
         elif instr_lower.startswith("visual:"):
