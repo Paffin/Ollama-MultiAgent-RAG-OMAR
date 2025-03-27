@@ -1,5 +1,5 @@
 """
-Промпты для OMAR
+Модуль промптов для различных агентов
 """
 
 from .planner import PLANNER_PROMPT
