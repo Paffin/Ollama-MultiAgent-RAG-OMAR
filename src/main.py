@@ -45,7 +45,7 @@ from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
 from utils.cache import Cache
-from streamlit.web import run as run_streamlit
+import streamlit as st
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
     """
@@ -145,7 +145,8 @@ def main():
         systems = init_systems()
         
         # Запуск Streamlit приложения
-        run_streamlit(systems)
+        from streamlit.app import run
+        run(systems)
         
     except Exception as e:
         handle_error(e, "Запуск приложения")

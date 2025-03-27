@@ -2,7 +2,7 @@
 Модуль Streamlit интерфейса
 """
 
-from streamlit.web import run
+import streamlit as st
 from .components import (
     AgentChain,
     AnalyticsDashboard,
@@ -12,7 +12,7 @@ from .components import (
 )
 
 __all__ = [
-    'run',
+    'st',
     'AgentChain',
     'AnalyticsDashboard',
     'DataProcessingPanel',
