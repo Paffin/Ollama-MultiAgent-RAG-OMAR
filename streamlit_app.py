@@ -24,6 +24,13 @@ from agents import (
     ArbiterAgent
 )
 from rag_db import SimpleVectorStore
+from prompts import (
+    PLANNER_PROMPT,
+    EXECUTOR_PROMPT,
+    CRITIC_PROMPT,
+    PRAISE_PROMPT,
+    ARBITER_PROMPT
+)
 
 def init_session_state():
     if "ollama_client" not in st.session_state:
@@ -80,55 +87,11 @@ def main():
         model_praise = st.selectbox("Praise Model", models, index=0)
         model_arbiter = st.selectbox("Arbiter Model", models, index=0)
 
-        def_planner = """\
-You are the PlannerAgent. Your role is to analyze the user's request using advanced language understanding. Based on your analysis, decide which action is required:
-- If the request demands an internet search, respond with "ducksearch: <query>".
-- If the request requires performing actions in a web browser (for example, registration or form filling), respond with "browser: open url=<URL>; ..." including all necessary steps.
-- If the request can be answered using local data, simply pass the query as is.
-- If the request is ambiguous, ask a clarifying question by starting your response with "clarify:".
-Never provide a final solution yourself.
-
-"""
-        def_executor = """\
-You are the ExecutorAgent. Your task is to execute the instructions provided by the PlannerAgent using available tools. This includes:
-- Performing internet searches using "ducksearch:" instructions by aggregating and summarizing data from multiple sources.
-- Carrying out browser-based actions as specified in "browser:" instructions (e.g., opening URLs, clicking elements, typing text, extracting content, checking SSL status, and measuring load times).
-- Executing system commands if instructed.
-- If no explicit command is recognized, generating an answer using the language model.
-Log detailed technical information (e.g., page load times, SSL status) and include any encountered errors in your output.
-Provide the final answer in a clear and concise format.
-
-"""
-        def_critic = """\
-You are the CriticAgent. Your role is to review the output from the ExecutorAgent and identify any errors, weaknesses, or missing information. Focus on:
-- Verifying that all required actions were completed.
-- Checking if browser actions include necessary security checks (such as SSL certificate validation) and performance metrics (like page load times).
-- Pointing out any ambiguous, incomplete, or inconsistent parts of the answer.
-Do not provide a final solution; only highlight issues and suggest areas for improvement.
-
-"""
-        def_praise = """\
-You are the PraiseAgent. Your task is to highlight the strengths and positive aspects of the ExecutorAgent's answer. Emphasize:
-- The clarity, structure, and completeness of the response.
-- The usefulness of the aggregated data from multiple sources.
-- The effective execution of browser actions (such as successful navigation, data extraction, error handling, and inclusion of security/performance metrics).
-Do not provide a final solution; only point out what was done well.
-
-"""
-        def_arbiter = """\
-You are the ArbiterAgent. Your role is to review the ExecutorAgent's answer along with the feedback from CriticAgent and PraiseAgent, and then produce a precise "Rework Instruction" for improvement. Include:
-- Specific recommendations for additional checks (for example, verifying SSL certificates, measuring page load times, and checking for errors).
-- Suggestions for clarifying ambiguous instructions or addressing missing details.
-- Guidelines for re-executing tasks with enhanced detail and reliability.
-Do not provide the final solution yourself.
-
-"""
-
-        sp_planner = st.text_area("PlannerAgent Prompt", def_planner, height=120)
-        sp_executor = st.text_area("ExecutorAgent Prompt", def_executor, height=120)
-        sp_critic = st.text_area("CriticAgent Prompt", def_critic, height=120)
-        sp_praise = st.text_area("PraiseAgent Prompt", def_praise, height=120)
-        sp_arbiter = st.text_area("ArbiterAgent Prompt", def_arbiter, height=120)
+        sp_planner = st.text_area("PlannerAgent Prompt", PLANNER_PROMPT, height=120)
+        sp_executor = st.text_area("ExecutorAgent Prompt", EXECUTOR_PROMPT, height=120)
+        sp_critic = st.text_area("CriticAgent Prompt", CRITIC_PROMPT, height=120)
+        sp_praise = st.text_area("PraiseAgent Prompt", PRAISE_PROMPT, height=120)
+        sp_arbiter = st.text_area("ArbiterAgent Prompt", ARBITER_PROMPT, height=120)
 
         if st.button("Инициализировать агентов"):
             from agents import (
@@ -140,31 +103,26 @@ Do not provide the final solution yourself.
             )
             st.session_state.planner_agent = PlannerAgent(
                 name="Planner",
-                system_prompt=sp_planner,
                 model_name=model_planner,
                 client=client
             )
             st.session_state.executor_agent = ExecutorAgent(
                 name="Executor",
-                system_prompt=sp_executor,
                 model_name=model_executor,
                 client=client
             )
             st.session_state.critic_agent = CriticAgent(
                 name="Critic",
-                system_prompt=sp_critic,
                 model_name=model_critic,
                 client=client
             )
             st.session_state.praise_agent = PraiseAgent(
                 name="Praise",
-                system_prompt=sp_praise,
                 model_name=model_praise,
                 client=client
             )
             st.session_state.arbiter_agent = ArbiterAgent(
                 name="Arbiter",
-                system_prompt=sp_arbiter,
                 model_name=model_arbiter,
                 client=client
             )

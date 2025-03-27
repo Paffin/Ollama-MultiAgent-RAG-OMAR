@@ -6,6 +6,14 @@ from windows_tools import (
     PlaywrightBrowser,
     llava_analyze_screenshot_via_ollama_llava
 )
+from prompts import (
+    PLANNER_PROMPT,
+    EXECUTOR_PROMPT,
+    CRITIC_PROMPT,
+    PRAISE_PROMPT,
+    ARBITER_PROMPT,
+    PLANNER_ANALYSIS_PROMPT
+)
 import re
 import time
 
@@ -33,23 +41,21 @@ class PlannerAgent(BaseAgent):
       - Если локальные данные недостаточны, генерируется инструкция ducksearch:.
       - Если запрос требует операций в браузере (например, регистрация, заполнение формы), генерируется инструкция browser:.
       - Если запрос неоднозначен, может быть запрошено уточнение.
+      - Если запрос требует комплексного решения, генерируется инструкция complex:.
     """
+    def __init__(self, name: str, model_name: str, client: OllamaClient):
+        super().__init__(name, PLANNER_PROMPT, model_name, client)
+
     def analyze_query(self, user_query: str) -> str:
         # Отправляем запрос к LLM для анализа намерений пользователя.
-        prompt = (
-        f"Проанализируй следующий запрос и ответь кратко в формате:\n"
-        f"- Если нужно выполнить поиск в интернете, ответь: ducksearch: <запрос>.\n"
-        f"- Если нужно выполнить действия в браузере (например, регистрация, заполнение формы), ответь: browser: open url=<URL>; ...\n"
-        f"- Если данные достаточно локальны, просто повтори запрос.\n"
-        f"Запрос: {user_query}"
-    )
+        prompt = PLANNER_ANALYSIS_PROMPT.format(user_query=user_query)
         analysis = self.client.generate(prompt=prompt, model=self.model_name, stream=False)
     
-    # Если вернулся генератор, превращаем его в строку
+        # Если вернулся генератор, превращаем его в строку
         if not isinstance(analysis, str):
             analysis = ''.join(analysis)
 
-    # Теперь можно спокойно вызвать strip()
+        # Теперь можно спокойно вызвать strip()
         if analysis.strip() == "":
             return user_query
         return analysis.strip()
@@ -65,12 +71,25 @@ class PlannerAgent(BaseAgent):
         # Предварительный анализ запроса с помощью LLM.
         analysis = self.analyze_query(user_query)
         # Если анализ вернул явную команду, используем её; иначе проверяем локальные данные.
-        if analysis.lower().startswith("ducksearch:") or analysis.lower().startswith("browser:"):
+        if analysis.lower().startswith(("ducksearch:", "browser:", "llm:", "clarify:", "complex:")):
             plan = analysis
         else:
             local_hits = vector_store.search(user_query, k=1)
             if len(local_hits) == 0:
-                plan = f"ducksearch: {user_query}"
+                # Если нет локальных данных, проверяем, не требует ли запрос комплексного решения
+                if "и" in user_query.lower() or "затем" in user_query.lower() or "после" in user_query.lower():
+                    # Разбиваем запрос на шаги
+                    steps = []
+                    for part in user_query.split("и"):
+                        part = part.strip()
+                        if part:
+                            steps.append(part)
+                    if len(steps) > 1:
+                        plan = "complex: " + "; ".join(steps)
+                    else:
+                        plan = f"llm: {user_query}"
+                else:
+                    plan = f"llm: {user_query}"
             else:
                 plan = user_query
         self.add_message("assistant", plan)
@@ -84,9 +103,18 @@ class PlannerAgent(BaseAgent):
 class ExecutorAgent(BaseAgent):
     """
     ExecutorAgent выполняет инструкции:
-      - search:, cmd:, ls:, ducksearch:, browser:, visual:
-    Если ни одна команда не распознана – генерирует LLM-ответ.
+      - llm: локальный LLM-запрос
+      - ducksearch: поиск в интернете
+      - browser: действия в браузере
+      - search: поиск в локальных данных
+      - cmd: системные команды
+      - ls: просмотр директорий
+      - visual: анализ визуального контента
+      - complex: комплексные решения
     """
+    def __init__(self, name: str, model_name: str, client: OllamaClient):
+        super().__init__(name, EXECUTOR_PROMPT, model_name, client)
+
     def execute_instruction(
         self,
         instruction: str,
@@ -97,8 +125,51 @@ class ExecutorAgent(BaseAgent):
         self.add_message("user", instruction)
         instr_lower = instruction.lower()
 
-        # 1) DuckDuckGo поиск с агрегацией (приоритетная ветка)
-        if instr_lower.startswith("ducksearch:"):
+        # 1) Комплексное решение (приоритетная ветка)
+        if instr_lower.startswith("complex:"):
+            steps = instruction.split("complex:")[1].split(";")
+            results = []
+            for step in steps:
+                step = step.strip()
+                if not step:
+                    continue
+                # Рекурсивно выполняем каждый шаг
+                step_result = self.execute_instruction(
+                    step,
+                    vector_store,
+                    stream=False,
+                    **ollama_opts
+                )
+                results.append(f"Шаг: {step}\nРезультат: {step_result}\n")
+            
+            final_result = "Результаты выполнения комплексного решения:\n\n" + "\n".join(results)
+            self.add_message("assistant", final_result)
+            return final_result
+
+        # 2) Локальный LLM-запрос
+        elif instr_lower.startswith("llm:"):
+            query = instruction.split("llm:")[1].strip()
+            prompt = self.build_prompt()
+            if not stream:
+                resp = self.client.generate(
+                    prompt=prompt,
+                    model=self.model_name,
+                    stream=False,
+                    **ollama_opts
+                )
+                self.add_message("assistant", resp)
+                return resp
+            else:
+                gen = self.client.generate(
+                    prompt=prompt,
+                    model=self.model_name,
+                    stream=True,
+                    **ollama_opts
+                )
+                return gen
+
+        # 3) DuckDuckGo поиск с агрегацией
+        elif instr_lower.startswith("ducksearch:"):
             search_query = instruction.split("ducksearch:")[1].strip()
             tool_out = "Результаты поиска в DuckDuckGo:\n"
             aggregated_text = ""
@@ -156,7 +227,7 @@ class ExecutorAgent(BaseAgent):
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 2) Локальный поиск через RAG
+        # 4) Локальный поиск через RAG
         elif instr_lower.startswith("search:"):
             query = instruction.split("search:")[1].strip()
             found_docs = vector_store.search(query, k=3)
@@ -166,21 +237,21 @@ class ExecutorAgent(BaseAgent):
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 3) Системная команда
+        # 5) Системная команда
         elif instr_lower.startswith("cmd:"):
             cmd_text = instruction.split("cmd:")[1].strip()
             tool_out = run_system_command(cmd_text)
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 4) Просмотр директории
+        # 6) Просмотр директории
         elif instr_lower.startswith("ls:"):
             path = instruction.split("ls:")[1].strip()
             tool_out = list_directory(path)
             self.add_message("assistant", tool_out)
             return tool_out
 
-        # 5) Действия в браузере
+        # 7) Действия в браузере
         elif instr_lower.startswith("browser:"):
             browser_out = ""
             actions = instruction.split("browser:")[1].split(";")
@@ -215,12 +286,26 @@ class ExecutorAgent(BaseAgent):
                             browser_out += f"Текст из {sel}: {parsed_text}\n"
                         except Exception as e:
                             browser_out += f"Ошибка при извлечении текста по селектору {sel}: {e}\n"
+                    elif act.startswith("wait selector="):
+                        sel = act.replace("wait selector=", "").strip()
+                        try:
+                            br.page.wait_for_selector(sel, timeout=5000)
+                            browser_out += f"Ожидание селектора {sel} завершено\n"
+                        except Exception as e:
+                            browser_out += f"Ошибка при ожидании селектора {sel}: {e}\n"
+                    elif act.startswith("scroll to="):
+                        sel = act.replace("scroll to=", "").strip()
+                        try:
+                            br.page.evaluate(f"document.querySelector('{sel}').scrollIntoView()")
+                            browser_out += f"Прокрутка к элементу {sel}\n"
+                        except Exception as e:
+                            browser_out += f"Ошибка при прокрутке к {sel}: {e}\n"
             finally:
                 br.close()
             self.add_message("assistant", browser_out)
             return browser_out
 
-        # 6) Анализ визуального содержимого через LLaVA
+        # 8) Анализ визуального содержимого через LLaVA
         elif instr_lower.startswith("visual:"):
             sub = instruction.split("visual:")[1].strip()
             if "||" in sub:
@@ -238,7 +323,7 @@ class ExecutorAgent(BaseAgent):
             self.add_message("assistant", tool_out)
             return tool_out
         
-        # 7) Если ни одна команда не распознана – LLM-ответ
+        # 9) Если ни одна команда не распознана – LLM-ответ
         else:
             prompt = self.build_prompt()
             if not stream:
@@ -260,6 +345,9 @@ class ExecutorAgent(BaseAgent):
                 return gen
 
 class CriticAgent(BaseAgent):
+    def __init__(self, name: str, model_name: str, client: OllamaClient):
+        super().__init__(name, CRITIC_PROMPT, model_name, client)
+
     def criticize(self, executor_result: str, stream=False, **ollama_opts) -> Union[str, Generator[str, None, None]]:
         user_msg = f"Вот ответ Исполнителя. Определи ошибки, слабые стороны, неточности:\n\n{executor_result}"
         self.add_message("user", user_msg)
@@ -283,6 +371,9 @@ class CriticAgent(BaseAgent):
             return gen
 
 class PraiseAgent(BaseAgent):
+    def __init__(self, name: str, model_name: str, client: OllamaClient):
+        super().__init__(name, PRAISE_PROMPT, model_name, client)
+
     def praise(self, executor_result: str, stream=False, **ollama_opts) -> Union[str, Generator[str, None, None]]:
         user_msg = f"Вот ответ Исполнителя. Покажи, что в нём хорошего, какие сильные стороны:\n\n{executor_result}"
         self.add_message("user", user_msg)
@@ -306,6 +397,9 @@ class PraiseAgent(BaseAgent):
             return gen
 
 class ArbiterAgent(BaseAgent):
+    def __init__(self, name: str, model_name: str, client: OllamaClient):
+        super().__init__(name, ARBITER_PROMPT, model_name, client)
+
     def produce_rework_instruction(
         self,
         executor_result: str,
