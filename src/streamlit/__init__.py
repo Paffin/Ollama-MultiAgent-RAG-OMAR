@@ -3,14 +3,14 @@
 """
 
 import streamlit as st
-from .components import (
+from src.streamlit.components import (
     AgentChain,
     AnalyticsDashboard,
     DataProcessingPanel,
     NotificationPanel,
     SettingsPanel
 )
-from .app import run_app
+from src.streamlit.app import run_app
 
 __all__ = [
     'st',

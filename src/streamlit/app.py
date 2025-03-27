@@ -9,7 +9,7 @@ src_path = str(Path(__file__).parent.parent)
 if src_path not in sys.path:
     sys.path.append(src_path)
 
-from components import (
+from src.streamlit.components import (
     AgentChain,
     AnalyticsDashboard,
     DataProcessingPanel,
