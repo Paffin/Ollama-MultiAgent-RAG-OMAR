@@ -1,14 +1,60 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-*.egg
-*.pyd
+*$py.class
 *.so
-*.dll
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Project specific
+uploads/
+*.log
+metrics.json
+settings.json
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Distribution
+*.tar.gz
+*.zip
+*.rar
+*.7z
 
 # Environments
-venv/
 .env
 .venv/
 ipynb_checkpoints/
@@ -18,20 +64,14 @@ ipynb_checkpoints/
 *.streamlit
 
 # OS-specific
-.DS_Store
 Thumbs.db
 
 # Logs or temporary
-*.log
 *.temp
 *.tmp
-*.swp
-*.swo
 *.bak
 
 # IDE settings
-.vscode/
-.idea/
 *.iml
 
 # Any custom folder to ignore
