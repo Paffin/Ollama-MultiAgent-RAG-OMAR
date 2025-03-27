@@ -2,7 +2,7 @@
 Модуль Streamlit интерфейса
 """
 
-from .app import run
+from streamlit.web import run
 from .components import (
     AgentChain,
     AnalyticsDashboard,
