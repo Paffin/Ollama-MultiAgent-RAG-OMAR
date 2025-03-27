@@ -125,25 +125,52 @@ class PlannerAgent(BaseAgent):
         if not isinstance(analysis, str):
             analysis = ''.join(analysis)
 
-        # Извлекаем рекомендацию из анализа
+        # Извлекаем все важные компоненты анализа
+        analysis_match = re.search(r'\[Анализ\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
         recommendation_match = re.search(r'\[Рекомендация\]:\s*(\w+)', analysis)
-        if recommendation_match:
+        justification_match = re.search(r'\[Обоснование\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+        additional_match = re.search(r'\[Дополнительно\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+
+        # Определяем тип запроса и необходимые действия
+        query_type = None
+        required_actions = []
+        data_sources = []
+
+        if analysis_match:
+            analysis_text = analysis_match.group(1).strip()
+            # Анализируем тип запроса
+            if any(word in analysis_text.lower() for word in ['курс', 'погода', 'новости', 'актуальный', 'сейчас']):
+                query_type = 'ducksearch'
+            elif any(word in analysis_text.lower() for word in ['браузер', 'сайт', 'страница', 'форма', 'регистрация']):
+                query_type = 'browser'
+            elif any(word in analysis_text.lower() for word in ['файл', 'директория', 'папка', 'система']):
+                query_type = 'cmd'
+            elif any(word in analysis_text.lower() for word in ['изображение', 'скриншот', 'фото', 'картинка']):
+                query_type = 'visual'
+            elif any(word in analysis_text.lower() for word in ['и', 'затем', 'после', 'потом', 'сначала', 'далее']):
+                query_type = 'complex'
+            elif any(word in analysis_text.lower() for word in ['поиск', 'найти', 'найти в']):
+                query_type = 'search'
+
+        # Если тип не определен по анализу, используем рекомендацию
+        if not query_type and recommendation_match:
             recommendation = recommendation_match.group(1).lower()
-            
-            # Определяем тип инструкции на основе рекомендации
-            if recommendation == 'ducksearch':
+            if recommendation in ['ducksearch', 'browser', 'cmd', 'visual', 'complex', 'search']:
+                query_type = recommendation
+
+        # Формируем инструкцию на основе определенного типа
+        if query_type:
+            if query_type == 'ducksearch':
                 return f"ducksearch: {user_query}"
-            elif recommendation == 'browser':
+            elif query_type == 'browser':
                 return f"browser: {user_query}"
-            elif recommendation == 'search':
-                return f"search: {user_query}"
-            elif recommendation == 'cmd':
+            elif query_type == 'cmd':
                 return f"cmd: {user_query}"
-            elif recommendation == 'ls':
-                return f"ls: {user_query}"
-            elif recommendation == 'visual':
+            elif query_type == 'visual':
                 return f"visual: {user_query}"
-            elif recommendation == 'complex':
+            elif query_type == 'search':
+                return f"search: {user_query}"
+            elif query_type == 'complex':
                 # Разбиваем запрос на шаги
                 steps = []
                 # Разбиваем по союзам и предлогам
@@ -168,11 +195,8 @@ class PlannerAgent(BaseAgent):
                     
                     if full_steps:
                         return "complex: " + "; ".join(full_steps)
-                
-            elif recommendation == 'llm':
-                return f"llm: {user_query}"
 
-        # Если не удалось определить тип инструкции, возвращаем исходный запрос
+        # Если не удалось определить тип запроса, проверяем локальные данные
         return user_query
 
     def generate_instruction(
@@ -194,10 +218,33 @@ class PlannerAgent(BaseAgent):
             # Проверяем локальные данные
             local_hits = vector_store.search(user_query, k=1)
             if len(local_hits) == 0:
-                # Если нет локальных данных, используем LLM
-                plan = f"llm: {user_query}"
+                # Если нет локальных данных, используем ducksearch для актуальных данных
+                if any(word in user_query.lower() for word in ['курс', 'погода', 'новости', 'актуальный', 'сейчас']):
+                    plan = f"ducksearch: {user_query}"
+                # Используем browser для веб-действий
+                elif any(word in user_query.lower() for word in ['браузер', 'сайт', 'страница', 'форма', 'регистрация']):
+                    plan = f"browser: {user_query}"
+                # Используем cmd для системных операций
+                elif any(word in user_query.lower() for word in ['файл', 'директория', 'папка', 'система']):
+                    plan = f"cmd: {user_query}"
+                # Используем visual для работы с изображениями
+                elif any(word in user_query.lower() for word in ['изображение', 'скриншот', 'фото', 'картинка']):
+                    plan = f"visual: {user_query}"
+                # Используем complex для многошаговых задач
+                elif any(word in user_query.lower() for word in ['и', 'затем', 'после', 'потом', 'сначала', 'далее']):
+                    steps = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
+                    if len(steps) > 1:
+                        plan = "complex: " + "; ".join(steps)
+                    else:
+                        plan = f"llm: {user_query}"
+                # Используем search для поисковых запросов
+                elif any(word in user_query.lower() for word in ['поиск', 'найти', 'найти в']):
+                    plan = f"search: {user_query}"
+                # В остальных случаях используем LLM
+                else:
+                    plan = f"llm: {user_query}"
             else:
-                plan = user_query
+                plan = f"search: {user_query}"
                 
         self.add_message("assistant", plan)
         if not stream:
