@@ -46,7 +46,7 @@ from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
 from utils.cache import Cache
-from streamlit.components import (
+from streamlit import (
     AgentChain,
     AnalyticsDashboard,
     DataProcessingPanel,
