@@ -46,7 +46,6 @@ from reporting import ReportGenerator
 from predictive_analytics import PredictiveAnalytics
 from transformations import StreamingProcessor
 from utils.cache import Cache
-from src.streamlit.app import run_app
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
     """
@@ -144,9 +143,52 @@ def main():
         # Инициализация систем
         systems = init_systems()
         
-        # Запуск Streamlit приложения
-        run_app(systems)
+        # Настройка страницы
+        st.set_page_config(
+            page_title="OMAR - Multi-Agent RAG System",
+            page_icon="🤖",
+            layout="wide"
+        )
         
+        # Инициализация состояния сессии
+        if 'agent_chain' not in st.session_state:
+            st.session_state.agent_chain = []
+        if 'notifications' not in st.session_state:
+            st.session_state.notifications = []
+            
+        # Заголовок
+        st.title("OMAR - Multi-Agent RAG System")
+        
+        # Импортируем компоненты здесь, чтобы избежать циклических импортов
+        from streamlit.components import (
+            AgentChain,
+            AnalyticsDashboard,
+            DataProcessingPanel,
+            NotificationPanel,
+            SettingsPanel
+        )
+        
+        # Инициализация компонентов
+        agent_chain = AgentChain(st.session_state.agent_chain)
+        analytics_dashboard = AnalyticsDashboard(systems['analytics'].get_all_stats())
+        data_panel = DataProcessingPanel(
+            systems['data_processor'],
+            systems['data_validator'],
+            systems['data_preprocessor']
+        )
+        notification_panel = NotificationPanel(st.session_state.notifications)
+        settings_panel = SettingsPanel(systems['config'])
+        
+        # Отображение компонентов
+        with st.sidebar:
+            settings_panel.render()
+            notification_panel.render()
+        
+        with st.main():
+            agent_chain.render()
+            analytics_dashboard.render()
+            data_panel.render()
+            
     except Exception as e:
         handle_error(e, "Запуск приложения")
         sys.exit(1)

@@ -8,14 +8,15 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="omar",
-    version="1.0.0",
+    version="0.1.0",
     author="Your Name",
     author_email="your.email@example.com",
     description="MultiAgent System with RAG and Analytics",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/omar",
-    packages=find_packages(),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
@@ -28,7 +29,13 @@ setup(
         "Programming Language :: Python :: 3.11",
     ],
     python_requires=">=3.8",
-    install_requires=requirements,
+    install_requires=[
+        "streamlit",
+        "plotly",
+        "pandas",
+        "requests",
+        "nest-asyncio"
+    ],
     entry_points={
         "console_scripts": [
             "omar=src.main:main",
