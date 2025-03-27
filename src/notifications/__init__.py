@@ -1,5 +1,5 @@
 """
-Система уведомлений для OMAR
+Модуль системы уведомлений
 """
 
 from .system import NotificationSystem, Notification, NotificationType, NotificationPriority
