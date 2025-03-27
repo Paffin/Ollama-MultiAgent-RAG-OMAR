@@ -1,9 +1,25 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Type, TypeVar, Union
+from typing import Dict, Any, Optional, Type, TypeVar, Union, List, Set
 import json
 import os
 from pathlib import Path
 from enum import Enum
+
+class ConfigError(Exception):
+    """Базовый класс для ошибок конфигурации"""
+    pass
+
+class ValidationError(ConfigError):
+    """Ошибка валидации конфигурации"""
+    pass
+
+class LoadError(ConfigError):
+    """Ошибка загрузки конфигурации"""
+    pass
+
+class SaveError(ConfigError):
+    """Ошибка сохранения конфигурации"""
+    pass
 
 class ConfigSection(str, Enum):
     """Секции конфигурации"""
@@ -31,11 +47,11 @@ class OllamaConfig:
     def validate(self) -> None:
         """Валидация конфигурации"""
         if not self.base_url.startswith(('http://', 'https://')):
-            raise ValueError("base_url должен начинаться с http:// или https://")
+            raise ValidationError("base_url должен начинаться с http:// или https://")
         if self.timeout <= 0:
-            raise ValueError("timeout должен быть положительным числом")
+            raise ValidationError("timeout должен быть положительным числом")
         if not self.models:
-            raise ValueError("models не может быть пустым")
+            raise ValidationError("models не может быть пустым")
 
 @dataclass
 class AgentConfig:
@@ -48,13 +64,13 @@ class AgentConfig:
     def validate(self) -> None:
         """Валидация конфигурации"""
         if not 0 <= self.temperature <= 2:
-            raise ValueError("temperature должен быть в диапазоне [0, 2]")
+            raise ValidationError("temperature должен быть в диапазоне [0, 2]")
         if not 0 <= self.top_p <= 1:
-            raise ValueError("top_p должен быть в диапазоне [0, 1]")
+            raise ValidationError("top_p должен быть в диапазоне [0, 1]")
         if self.max_tokens <= 0:
-            raise ValueError("max_tokens должен быть положительным числом")
+            raise ValidationError("max_tokens должен быть положительным числом")
         if self.context_window <= 0:
-            raise ValueError("context_window должен быть положительным числом")
+            raise ValidationError("context_window должен быть положительным числом")
 
 @dataclass
 class DataConfig:
@@ -62,18 +78,18 @@ class DataConfig:
     chunk_size: int = 1000
     min_text_length: int = 10
     max_text_length: int = 10000
-    supported_formats: list = field(default_factory=lambda: ["csv", "json", "yaml", "xml"])
+    supported_formats: Set[str] = field(default_factory=lambda: {"csv", "json", "yaml", "xml"})
 
     def validate(self) -> None:
         """Валидация конфигурации"""
         if self.chunk_size <= 0:
-            raise ValueError("chunk_size должен быть положительным числом")
+            raise ValidationError("chunk_size должен быть положительным числом")
         if self.min_text_length < 0:
-            raise ValueError("min_text_length не может быть отрицательным")
+            raise ValidationError("min_text_length не может быть отрицательным")
         if self.max_text_length <= self.min_text_length:
-            raise ValueError("max_text_length должен быть больше min_text_length")
+            raise ValidationError("max_text_length должен быть больше min_text_length")
         if not self.supported_formats:
-            raise ValueError("supported_formats не может быть пустым")
+            raise ValidationError("supported_formats не может быть пустым")
 
 @dataclass
 class AnalyticsConfig:
@@ -85,27 +101,27 @@ class AnalyticsConfig:
     def validate(self) -> None:
         """Валидация конфигурации"""
         if self.metrics_history_size <= 0:
-            raise ValueError("metrics_history_size должен быть положительным числом")
+            raise ValidationError("metrics_history_size должен быть положительным числом")
         if self.prediction_window <= 0:
-            raise ValueError("prediction_window должен быть положительным числом")
+            raise ValidationError("prediction_window должен быть положительным числом")
         if not 0 <= self.confidence_threshold <= 1:
-            raise ValueError("confidence_threshold должен быть в диапазоне [0, 1]")
+            raise ValidationError("confidence_threshold должен быть в диапазоне [0, 1]")
 
 @dataclass
 class NotificationConfig:
     """Конфигурация уведомлений"""
     max_history: int = 1000
-    priority_levels: list = field(default_factory=lambda: [1, 2, 3, 4, 5])
-    categories: list = field(default_factory=lambda: ["info", "warning", "error", "success"])
+    priority_levels: List[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    categories: List[str] = field(default_factory=lambda: ["info", "warning", "error", "success"])
 
     def validate(self) -> None:
         """Валидация конфигурации"""
         if self.max_history <= 0:
-            raise ValueError("max_history должен быть положительным числом")
+            raise ValidationError("max_history должен быть положительным числом")
         if not self.priority_levels:
-            raise ValueError("priority_levels не может быть пустым")
+            raise ValidationError("priority_levels не может быть пустым")
         if not self.categories:
-            raise ValueError("categories не может быть пустым")
+            raise ValidationError("categories не может быть пустым")
 
 @dataclass
 class AppConfig:
@@ -114,6 +130,7 @@ class AppConfig:
     agent: AgentConfig = AgentConfig()
     data: DataConfig = DataConfig()
 
+@dataclass
 class ConfigManager:
     """Менеджер конфигурации"""
     config_path: str = "config/settings.json"
@@ -130,11 +147,14 @@ class ConfigManager:
         
     def _validate_all(self) -> None:
         """Валидация всех конфигураций"""
-        self.ollama.validate()
-        self.agents.validate()
-        self.data.validate()
-        self.analytics.validate()
-        self.notifications.validate()
+        try:
+            self.ollama.validate()
+            self.agents.validate()
+            self.data.validate()
+            self.analytics.validate()
+            self.notifications.validate()
+        except ValidationError as e:
+            raise ValidationError(f"Ошибка валидации конфигурации: {e}")
         
     def _get_config_class(self, section: ConfigSection) -> Type[T]:
         """Получение класса конфигурации для секции"""
@@ -159,8 +179,10 @@ class ConfigManager:
                         config_class = self._get_config_class(section)
                         setattr(self, section, config_class(**config_data[section]))
                         
+        except json.JSONDecodeError as e:
+            raise LoadError(f"Ошибка декодирования JSON: {e}")
         except Exception as e:
-            print(f"Ошибка при загрузке конфигурации: {e}")
+            raise LoadError(f"Ошибка при загрузке конфигурации: {e}")
             
     def save_config(self) -> None:
         """Сохранение конфигурации в файл"""
@@ -178,7 +200,7 @@ class ConfigManager:
                 json.dump(config_data, f, indent=4, ensure_ascii=False)
                 
         except Exception as e:
-            print(f"Ошибка при сохранении конфигурации: {e}")
+            raise SaveError(f"Ошибка при сохранении конфигурации: {e}")
             
     def update_config(self, section: ConfigSection, **kwargs) -> None:
         """
@@ -187,6 +209,10 @@ class ConfigManager:
         Args:
             section: Раздел конфигурации
             **kwargs: Параметры для обновления
+            
+        Raises:
+            ValidationError: При ошибке валидации
+            SaveError: При ошибке сохранения
         """
         try:
             config = getattr(self, section)
@@ -195,8 +221,12 @@ class ConfigManager:
             config.validate()
             self.save_config()
             
+        except ValidationError as e:
+            raise ValidationError(f"Ошибка валидации при обновлении {section}: {e}")
+        except SaveError as e:
+            raise SaveError(f"Ошибка сохранения при обновлении {section}: {e}")
         except Exception as e:
-            print(f"Ошибка при обновлении конфигурации: {e}")
+            raise ConfigError(f"Неожиданная ошибка при обновлении {section}: {e}")
             
     def get_config(self, section: ConfigSection) -> Dict[str, Any]:
         """
@@ -207,9 +237,11 @@ class ConfigManager:
             
         Returns:
             Словарь с конфигурацией
+            
+        Raises:
+            ConfigError: При ошибке получения конфигурации
         """
         try:
             return getattr(self, section).__dict__
         except Exception as e:
-            print(f"Ошибка при получении конфигурации: {e}")
-            return {} 
+            raise ConfigError(f"Ошибка при получении конфигурации {section}: {e}") 

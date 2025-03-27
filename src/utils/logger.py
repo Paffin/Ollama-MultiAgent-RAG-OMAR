@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
+import os
 
 class Logger:
     _instance = None
@@ -15,32 +17,56 @@ class Logger:
     
     def _initialize_logger(self):
         """Инициализация логгера"""
-        self.logger = logging.getLogger('omar')
-        self.logger.setLevel(logging.DEBUG)
-        
-        # Создаем директорию для логов
-        log_dir = Path('logs')
-        log_dir.mkdir(exist_ok=True)
-        
-        # Форматтер для логов
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        
-        # Хендлер для файла
-        log_file = log_dir / f'omar_{datetime.now().strftime("%Y%m%d")}.log'
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        
-        # Хендлер для консоли
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(formatter)
-        
-        # Добавляем хендлеры
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+        try:
+            self.logger = logging.getLogger('omar')
+            self.logger.setLevel(logging.DEBUG)
+            
+            # Создаем директорию для логов с обработкой ошибок
+            try:
+                log_dir = Path('logs')
+                log_dir.mkdir(exist_ok=True, parents=True)
+            except PermissionError:
+                print("Ошибка: Нет прав на создание директории логов")
+                sys.exit(1)
+            except Exception as e:
+                print(f"Ошибка при создании директории логов: {e}")
+                sys.exit(1)
+            
+            # Форматтер для логов
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            
+            # Хендлер для файла с ротацией
+            log_file = log_dir / f'omar_{datetime.now().strftime("%Y%m%d")}.log'
+            try:
+                file_handler = RotatingFileHandler(
+                    log_file,
+                    maxBytes=10*1024*1024,  # 10MB
+                    backupCount=5,
+                    encoding='utf-8'
+                )
+                file_handler.setLevel(logging.DEBUG)
+                file_handler.setFormatter(formatter)
+            except PermissionError:
+                print(f"Ошибка: Нет прав на запись в файл логов: {log_file}")
+                sys.exit(1)
+            except Exception as e:
+                print(f"Ошибка при создании файла логов: {e}")
+                sys.exit(1)
+            
+            # Хендлер для консоли
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(logging.INFO)
+            console_handler.setFormatter(formatter)
+            
+            # Добавляем хендлеры
+            self.logger.addHandler(file_handler)
+            self.logger.addHandler(console_handler)
+            
+        except Exception as e:
+            print(f"Критическая ошибка при инициализации логгера: {e}")
+            sys.exit(1)
         
     def debug(self, message: str, **kwargs):
         """Логирование отладочного сообщения"""

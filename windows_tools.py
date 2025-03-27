@@ -11,8 +11,27 @@ from urllib.parse import urlparse
 import ssl
 import hashlib
 from functools import lru_cache
+import tempfile
+import shutil
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+def validate_url(url: str) -> bool:
+    """
+    Валидация URL.
+    
+    Args:
+        url: URL для проверки
+        
+    Returns:
+        bool: True если URL валиден
+    """
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except Exception:
+        return False
 
 def sanitize_command(command: str) -> str:
     """
@@ -160,6 +179,7 @@ class PlaywrightBrowser:
         self.last_analysis = None
         self._page_cache = {}  # Кэш для результатов анализа страницы
         self._timeout = 30000  # Таймаут по умолчанию (30 секунд)
+        self._temp_dir = None
 
     def launch(self, headless: bool = True) -> None:
         """
@@ -169,6 +189,9 @@ class PlaywrightBrowser:
             headless: Флаг запуска в фоновом режиме
         """
         try:
+            # Создаем временную директорию
+            self._temp_dir = tempfile.mkdtemp()
+            
             self.playwright = sync_playwright().start()
             self.browser = self.playwright.chromium.launch(
                 headless=headless,
@@ -181,7 +204,16 @@ class PlaywrightBrowser:
             
         except Exception as e:
             logger.error(f"Ошибка при запуске браузера: {str(e)}")
+            self._cleanup()
             raise
+            
+    def _cleanup(self) -> None:
+        """Очистка временных файлов"""
+        try:
+            if self._temp_dir and os.path.exists(self._temp_dir):
+                shutil.rmtree(self._temp_dir)
+        except Exception as e:
+            logger.error(f"Ошибка при очистке временных файлов: {str(e)}")
             
     def _handle_ssl(self, route) -> None:
         """
@@ -197,6 +229,11 @@ class PlaywrightBrowser:
                 return
                 
             url = route.request.url
+            if not validate_url(url):
+                logger.warning(f"Некорректный URL: {url}")
+                route.abort()
+                return
+                
             parsed = urlparse(url)
             
             # Проверяем домен
@@ -225,8 +262,11 @@ class PlaywrightBrowser:
         """
         try:
             # Проверяем URL
-            if not url.startswith(('http://', 'https://')):
-                url = 'https://' + url
+            if not validate_url(url):
+                if not url.startswith(('http://', 'https://')):
+                    url = 'https://' + url
+                if not validate_url(url):
+                    raise ValueError(f"Некорректный URL: {url}")
                 
             # Проверяем кэш
             cache_key = hashlib.md5(url.encode()).hexdigest()
@@ -288,7 +328,13 @@ class PlaywrightBrowser:
             path: Путь для сохранения
         """
         try:
+            # Создаем директорию если не существует
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            
+            # Создаем скриншот
             self.page.screenshot(path=path)
+            self.last_screenshot = path
+            
         except Exception as e:
             logger.error(f"Ошибка при создании скриншота: {str(e)}")
             raise
@@ -315,6 +361,7 @@ class PlaywrightBrowser:
                 self.browser.close()
             if self.playwright:
                 self.playwright.stop()
+            self._cleanup()
         except Exception as e:
             logger.error(f"Ошибка при закрытии браузера: {str(e)}")
             
@@ -540,6 +587,16 @@ def llava_analyze_screenshot_via_ollama_llava(image_path: str, prompt: str, mode
     """
     import requests
     try:
+        # Проверяем существование файла
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Файл изображения не найден: {image_path}")
+            
+        # Проверяем, что это изображение
+        try:
+            Image.open(image_path)
+        except Exception:
+            raise ValueError(f"Файл не является изображением: {image_path}")
+            
         with open(image_path, "rb") as f:
             img_data = f.read()
         img_b64 = base64.b64encode(img_data).decode("utf-8")
