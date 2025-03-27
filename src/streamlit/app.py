@@ -9,8 +9,25 @@ from .components import (
     SettingsPanel
 )
 from utils.logger import Logger
+from utils.exceptions import ValidationError
 
 logger = Logger()
+
+def validate_input_data(data: str) -> bool:
+    """
+    Валидация входных данных
+    
+    Args:
+        data: Входные данные
+        
+    Returns:
+        bool: True если данные валидны
+    """
+    if not data or not isinstance(data, str):
+        return False
+    if len(data.strip()) == 0:
+        return False
+    return True
 
 def run(systems: Dict[str, Any]) -> None:
     """
@@ -32,7 +49,9 @@ def run(systems: Dict[str, Any]) -> None:
             st.session_state.agent_chain = []
         if 'agent_metrics' not in st.session_state:
             st.session_state.agent_metrics = {}
-        
+        if 'notifications' not in st.session_state:
+            st.session_state.notifications = []
+            
         # Заголовок
         st.title("OMAR - MultiAgent System with RAG and Analytics")
         
@@ -50,7 +69,11 @@ def run(systems: Dict[str, Any]) -> None:
         
         # Статус Ollama
         st.subheader("Ollama")
-        ollama_status = "🟢 Доступен" if systems['config'].ollama.base_url else "🔴 Недоступен"
+        try:
+            ollama_status = "🟢 Доступен" if systems['ollama_client'].check_connection() else "🔴 Недоступен"
+        except Exception as e:
+            logger.error(f"Ошибка проверки статуса Ollama: {str(e)}")
+            ollama_status = "🔴 Ошибка подключения"
         st.write(f"Статус: {ollama_status}")
         
         # Статус кэша
@@ -67,9 +90,13 @@ def run(systems: Dict[str, Any]) -> None:
         # Статистика аналитики
         st.subheader("Аналитика")
         analytics = systems['analytics']
-        st.write("Метрики агентов:")
-        for agent, stats in analytics.get_agent_stats().items():
-            st.write(f"- {agent}: {stats}")
+        try:
+            st.write("Метрики агентов:")
+            for agent, stats in analytics.get_agent_stats().items():
+                st.write(f"- {agent}: {stats}")
+        except Exception as e:
+            logger.error(f"Ошибка получения метрик агентов: {str(e)}")
+            st.error("Ошибка загрузки метрик")
             
         # Обработка данных
         st.subheader("Обработка данных")
@@ -86,6 +113,11 @@ def run(systems: Dict[str, Any]) -> None:
             user_query = st.text_input("Введите запрос:")
             if st.button("Обработать"):
                 if user_query:
+                    # Валидация входных данных
+                    if not validate_input_data(user_query):
+                        st.error("Введите корректный текст запроса")
+                        return
+                        
                     # Очищаем предыдущую цепочку
                     st.session_state.agent_chain = []
                     
@@ -118,6 +150,11 @@ def run(systems: Dict[str, Any]) -> None:
                         log_chain("system", "success", "Запрос успешно обработан")
                         add_notification("Запрос успешно обработан", "success", "system", 4)
                         
+                    except ValidationError as e:
+                        # Логируем ошибку валидации
+                        log_chain("system", "error", f"Ошибка валидации: {str(e)}")
+                        add_notification(f"Ошибка валидации: {str(e)}", "error", "system", 5)
+                        st.error(f"Ошибка валидации: {str(e)}")
                     except Exception as e:
                         # Логируем ошибку
                         log_chain("system", "error", f"Ошибка обработки: {str(e)}")
@@ -132,16 +169,20 @@ def run(systems: Dict[str, Any]) -> None:
                 
         with tab2:
             # Аналитика
-            analytics_data = {
-                'total_stats': systems['analytics'].get_all_stats(),
-                'efficiency_scores': {
-                    agent: systems['analytics'].get_efficiency_score(agent)
-                    for agent in systems['analytics'].get_all_stats()
-                },
-                'usage_plots': systems['analytics'].generate_usage_plots(),
-                'performance_plots': systems['analytics'].generate_performance_plots()
-            }
-            AnalyticsDashboard(analytics_data).render()
+            try:
+                analytics_data = {
+                    'total_stats': systems['analytics'].get_all_stats(),
+                    'efficiency_scores': {
+                        agent: systems['analytics'].get_efficiency_score(agent)
+                        for agent in systems['analytics'].get_all_stats()
+                    },
+                    'usage_plots': systems['analytics'].generate_usage_plots(),
+                    'performance_plots': systems['analytics'].generate_performance_plots()
+                }
+                AnalyticsDashboard(analytics_data).render()
+            except Exception as e:
+                logger.error(f"Ошибка отображения аналитики: {str(e)}")
+                st.error("Ошибка загрузки аналитики")
             
         with tab3:
             # Обработка данных

@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import pandas as pd
 from typing import Dict, Any, List, Optional
+from utils.exceptions import ValidationError
 
 class AgentChain:
     """Компонент для отображения цепочки работы агентов"""
@@ -12,6 +13,10 @@ class AgentChain:
         
     def render(self):
         """Отображение цепочки"""
+        if not self.chain:
+            st.info("Цепочка агентов пуста")
+            return
+            
         st.subheader("Цепочка работы агентов")
         for step in self.chain:
             with st.expander(f"{step['agent']} - {step['type']}"):
@@ -25,26 +30,48 @@ class AnalyticsDashboard:
         
     def render(self):
         """Отображение аналитики"""
+        if not self.data:
+            st.warning("Нет данных для отображения")
+            return
+            
         st.subheader("Аналитика")
         
         # Общая статистика
-        st.write("### Общая статистика")
-        st.json(self.data['total_stats'])
+        if 'total_stats' in self.data and self.data['total_stats']:
+            st.write("### Общая статистика")
+            st.json(self.data['total_stats'])
+        else:
+            st.info("Нет общей статистики")
         
         # Эффективность агентов
-        st.write("### Эффективность агентов")
-        for agent, score in self.data['efficiency_scores'].items():
-            st.metric(agent, f"{score:.2f}")
+        if 'efficiency_scores' in self.data and self.data['efficiency_scores']:
+            st.write("### Эффективность агентов")
+            for agent, score in self.data['efficiency_scores'].items():
+                st.metric(agent, f"{score:.2f}")
+        else:
+            st.info("Нет данных об эффективности")
             
         # Графики использования
-        st.write("### Использование агентов")
-        for plot in self.data['usage_plots']:
-            st.plotly_chart(plot)
+        if 'usage_plots' in self.data and self.data['usage_plots']:
+            st.write("### Использование агентов")
+            for plot in self.data['usage_plots']:
+                try:
+                    st.plotly_chart(plot)
+                except Exception as e:
+                    st.error(f"Ошибка отображения графика: {str(e)}")
+        else:
+            st.info("Нет графиков использования")
             
         # Графики производительности
-        st.write("### Производительность")
-        for plot in self.data['performance_plots']:
-            st.plotly_chart(plot)
+        if 'performance_plots' in self.data and self.data['performance_plots']:
+            st.write("### Производительность")
+            for plot in self.data['performance_plots']:
+                try:
+                    st.plotly_chart(plot)
+                except Exception as e:
+                    st.error(f"Ошибка отображения графика: {str(e)}")
+        else:
+            st.info("Нет графиков производительности")
 
 class DataProcessingPanel:
     """Компонент для обработки данных"""
@@ -61,32 +88,43 @@ class DataProcessingPanel:
         data = st.text_area("Введите данные для обработки")
         
         if st.button("Обработать"):
-            if data:
-                try:
-                    # Предварительная обработка
-                    processed = self.preprocessor.preprocess(data)
-                    st.write("### Предварительная обработка")
-                    st.json(processed)
-                    
-                    # Валидация
-                    validation_result = self.validator.validate(processed)
-                    st.write("### Результаты валидации")
-                    st.json(validation_result)
-                    
-                    # Обработка
-                    result = self.processor.process(processed)
-                    st.write("### Результаты обработки")
-                    st.json(result)
-                    
-                except Exception as e:
-                    st.error(f"Ошибка обработки: {str(e)}")
-            else:
+            if not data:
                 st.warning("Введите данные для обработки")
+                return
+                
+            try:
+                # Валидация входных данных
+                if not isinstance(data, str):
+                    raise ValidationError("Входные данные должны быть строкой")
+                    
+                if len(data.strip()) == 0:
+                    raise ValidationError("Входные данные не могут быть пустыми")
+                    
+                # Предварительная обработка
+                processed = self.preprocessor.preprocess(data)
+                st.write("### Предварительная обработка")
+                st.json(processed)
+                
+                # Валидация
+                validation_result = self.validator.validate(processed)
+                st.write("### Результаты валидации")
+                st.json(validation_result)
+                
+                # Обработка
+                result = self.processor.process(processed)
+                st.write("### Результаты обработки")
+                st.json(result)
+                
+            except ValidationError as e:
+                st.error(f"Ошибка валидации: {str(e)}")
+            except Exception as e:
+                st.error(f"Ошибка обработки: {str(e)}")
 
 class NotificationPanel:
     """Компонент для отображения уведомлений"""
     def __init__(self, notifications):
         self.notifications = notifications
+        self.items_per_page = 10
         
     def render(self):
         """Отображение уведомлений"""
@@ -114,7 +152,19 @@ class NotificationPanel:
         if priority != "Все":
             notifications = [n for n in notifications if n.priority == priority]
             
-        for notification in notifications:
+        # Пагинация
+        total_pages = (len(notifications) + self.items_per_page - 1) // self.items_per_page
+        current_page = st.number_input("Страница", min_value=1, max_value=max(1, total_pages), value=1)
+        
+        start_idx = (current_page - 1) * self.items_per_page
+        end_idx = start_idx + self.items_per_page
+        page_notifications = notifications[start_idx:end_idx]
+        
+        if not page_notifications:
+            st.info("Нет уведомлений для отображения")
+            return
+            
+        for notification in page_notifications:
             with st.expander(f"{notification.message} ({notification.type})"):
                 st.write(f"Источник: {notification.source}")
                 st.write(f"Приоритет: {notification.priority}")
@@ -177,13 +227,16 @@ class SettingsPanel:
         )
         
         if st.button("Сохранить настройки"):
-            # Обновляем конфигурацию
-            self.config.set('ollama.base_url', base_url)
-            self.config.set('cache.enabled', cache_enabled)
-            if cache_enabled:
-                self.config.set('cache.ttl', ttl)
-                self.config.set('cache.max_size', max_size)
-            self.config.set('logging.level', log_level)
-            
-            st.success("Настройки сохранены")
-            st.experimental_rerun() 
+            try:
+                # Обновляем конфигурацию
+                self.config.set('ollama.base_url', base_url)
+                self.config.set('cache.enabled', cache_enabled)
+                if cache_enabled:
+                    self.config.set('cache.ttl', ttl)
+                    self.config.set('cache.max_size', max_size)
+                self.config.set('logging.level', log_level)
+                
+                st.success("Настройки сохранены")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Ошибка сохранения настроек: {str(e)}") 

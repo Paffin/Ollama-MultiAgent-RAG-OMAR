@@ -21,7 +21,7 @@ if src_path not in sys.path:
 # Импорты из нашего пакета
 from utils.config import ConfigManager
 from utils.logger import Logger
-from utils.exceptions import handle_error
+from utils.exceptions import handle_error, ConfigurationError
 from agents import (
     PlannerAgent,
     ExecutorAgent,
@@ -111,8 +111,16 @@ def init_systems():
         # Инициализация аналитики
         analytics = AgentAnalytics()
         
-        # Инициализация обработчика данных
+        # Инициализация обработчиков данных
         data_processor = DataProcessor()
+        data_validator = DataValidator()
+        data_preprocessor = DataPreprocessor()
+        
+        # Инициализация Ollama клиента
+        ollama_client = OllamaClient(
+            base_url=config.ollama.base_url,
+            timeout=config.ollama.timeout
+        )
         
         return {
             'config': config,
@@ -120,7 +128,10 @@ def init_systems():
             'cache': cache,
             'notifications': notifications,
             'analytics': analytics,
-            'data_processor': data_processor
+            'data_processor': data_processor,
+            'data_validator': data_validator,
+            'data_preprocessor': data_preprocessor,
+            'ollama_client': ollama_client
         }
         
     except Exception as e:
