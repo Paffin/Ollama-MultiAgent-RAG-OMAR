@@ -2,4 +2,9 @@ streamlit
 requests
 sentence-transformers
 faiss-cpu
+duckduckgo-search
+playwright
+pillow
+nest_asyncio
+
 # Если на Windows есть проблемы с faiss-cpu, можно попробовать другую сборку (conda etc.)

@@ -1,7 +1,4 @@
-# rag_db.py
-
 import faiss
-
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -13,7 +10,7 @@ class SimpleVectorStore:
     
     def add_documents(self, docs: list):
         """
-        Добавляет документы (строки) в индекс FAISS
+        Добавляет документы (строки) в индекс FAISS.
         """
         emb = self.embedder.encode(docs, show_progress_bar=False)
         emb = np.array(emb).astype("float32")
@@ -29,7 +26,7 @@ class SimpleVectorStore:
     
     def search(self, query: str, k=3):
         """
-        Возвращает top-k ближайших документов
+        Возвращает top-k ближайших документов.
         """
         if self.index is None:
             return []

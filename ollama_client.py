@@ -1,5 +1,3 @@
-# ollama_client.py
-
 import requests
 from typing import List, Union, Generator
 
@@ -8,14 +6,13 @@ class OllamaClient:
         """
         Запускайте Ollama так:
           ollama serve --port 11434
-        Тогда этот клиент будет ходить на /api/tags и /api/generate
+        Этот клиент работает с /api/tags и /api/generate.
         """
         self.host = host
 
     def list_models(self) -> List[str]:
         """
-        Запрашиваем GET /api/tags, получаем JSON вида:
-          {"models": [ {"name": "llama3.2", ...}, ... ]}
+        Запрашивает GET /api/tags и возвращает список моделей.
         """
         url = f"{self.host}/api/tags"
         try:
@@ -36,11 +33,7 @@ class OllamaClient:
         **options
     ) -> Union[str, Generator[str, None, None]]:
         """
-        POST /api/generate
-        - prompt: текст
-        - model: имя модели (из /api/tags)
-        - stream=True => вернём генератор
-        - options => dict с параметрами (temperature, top_p, frequency_penalty, presence_penalty, num_ctx, num_predict, ...)
+        POST-запрос к /api/generate.
         """
         url = f"{self.host}/api/generate"
         payload = {
@@ -49,19 +42,16 @@ class OllamaClient:
             "stream": bool(stream),
             "options": {}
         }
-        # Помещаем доп. настройки в payload["options"]
         for k, v in options.items():
             payload["options"][k] = v
 
         try:
             if not stream:
-                # Обычный запрос
                 resp = requests.post(url, json=payload, timeout=600)
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("response", "")
             else:
-                # Поток chunk'ов
                 with requests.post(url, json=payload, stream=True, timeout=600) as r:
                     r.raise_for_status()
                     for line in r.iter_lines(decode_unicode=True):
@@ -74,7 +64,6 @@ class OllamaClient:
                                 if obj.get("done", False):
                                     return
                             except:
-                                # пропускаем строки, не парсящиеся как JSON
                                 pass
         except Exception as e:
             print(f"Ошибка при генерации текста: {e}")

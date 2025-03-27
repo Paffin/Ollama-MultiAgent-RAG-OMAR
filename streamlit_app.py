@@ -1,5 +1,16 @@
 # streamlit_app.py
 
+import sys
+import asyncio
+
+# 1) Устанавливаем политику цикла событий ProactorEventLoopPolicy
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+# 2) Подключаем nest_asyncio
+import nest_asyncio
+nest_asyncio.apply()
+
 import streamlit as st
 import time
 import re
@@ -35,10 +46,6 @@ def init_session_state():
         st.session_state.final_answer = ""
 
 def log_chain(agent_name: str, step_type: str, content: str):
-    """
-    Логируем шаг chain-of-thought.
-    Выводим контент как Markdown с подсветкой (language='markdown').
-    """
     st.session_state.chain_trace.append({
         "agent": agent_name,
         "type": step_type,
@@ -46,31 +53,21 @@ def log_chain(agent_name: str, step_type: str, content: str):
     })
 
 def display_chain_trace():
-    """
-    Проходимся по chain_trace и выводим каждый шаг.
-    Используем st.code(..., language='markdown') для подсветки кода/Markdown.
-    """
     for i, record in enumerate(st.session_state.chain_trace):
         st.markdown(f"**Step {i+1} – {record['agent']} [{record['type']}]**")
         st.code(record["content"], language="markdown")
 
 def detect_language(user_query: str) -> str:
-    """
-    Простейшее определение: если в тексте много кириллических букв, считаем язык русским.
-    Иначе английский (или другой).
-    """
     cyr_count = len(re.findall(r'[а-яА-ЯёЁ]', user_query))
-    if cyr_count >= 3:
-        return "ru"
-    return "en"
+    return "ru" if cyr_count >= 3 else "en"
 
 def main():
-    st.title("MultiAgent System with Markdown & Code Highlight in Chain-of-Thought")
+    st.title("MultiAgent System with Browser & DuckDuckGo")
 
     init_session_state()
     client = st.session_state.ollama_client
 
-    # --- Настройки агентов ---
+    # --- Настройка агентов ---
     with st.expander("Настройка агентов"):
         models = client.list_models()
         if not models:
@@ -83,40 +80,48 @@ def main():
         model_praise = st.selectbox("Praise Model", models, index=0)
         model_arbiter = st.selectbox("Arbiter Model", models, index=0)
 
-        # Системные промпты: 
-        # подчеркиваем, что Critic/Praise/Arbiter НЕ ДАЮТ итогового решения.
         def_planner = """\
-You are the PlannerAgent.
-You receive the user's request and break it into instructions for the ExecutorAgent.
+You are the PlannerAgent. Your role is to analyze the user's request using advanced language understanding. Based on your analysis, decide which action is required:
+- If the request demands an internet search, respond with "ducksearch: <query>".
+- If the request requires performing actions in a web browser (for example, registration or form filling), respond with "browser: open url=<URL>; ..." including all necessary steps.
+- If the request can be answered using local data, simply pass the query as is.
+- If the request is ambiguous, ask a clarifying question by starting your response with "clarify:".
 Never provide a final solution yourself.
-Keep the same language as the user.
+
 """
         def_executor = """\
-You are the ExecutorAgent.
-YOU ALONE provide the final solution (answer).
-Other agents (Critic, Praise, Arbiter) may give feedback, 
-but they must NOT present the final solution. 
-You must adhere to the instructions and finalize the answer in the user's language.
+You are the ExecutorAgent. Your task is to execute the instructions provided by the PlannerAgent using available tools. This includes:
+- Performing internet searches using "ducksearch:" instructions by aggregating and summarizing data from multiple sources.
+- Carrying out browser-based actions as specified in "browser:" instructions (e.g., opening URLs, clicking elements, typing text, extracting content, checking SSL status, and measuring load times).
+- Executing system commands if instructed.
+- If no explicit command is recognized, generating an answer using the language model.
+Log detailed technical information (e.g., page load times, SSL status) and include any encountered errors in your output.
+Provide the final answer in a clear and concise format.
+
 """
         def_critic = """\
-You are the CriticAgent.
-Your job: analyze the ExecutorAgent's last answer. 
-Identify flaws, weaknesses, or inaccuracies. 
-DO NOT provide a final solution or final code. 
-Only list potential problems or ways to refine/optimize in the same language as user.
+You are the CriticAgent. Your role is to review the output from the ExecutorAgent and identify any errors, weaknesses, or missing information. Focus on:
+- Verifying that all required actions were completed.
+- Checking if browser actions include necessary security checks (such as SSL certificate validation) and performance metrics (like page load times).
+- Pointing out any ambiguous, incomplete, or inconsistent parts of the answer.
+Do not provide a final solution; only highlight issues and suggest areas for improvement.
+
 """
         def_praise = """\
-You are the PraiseAgent.
-Your job: highlight the strengths of the ExecutorAgent's answer. 
-DO NOT provide the final solution. 
-Use the same language as the user, focusing only on positives.
+You are the PraiseAgent. Your task is to highlight the strengths and positive aspects of the ExecutorAgent's answer. Emphasize:
+- The clarity, structure, and completeness of the response.
+- The usefulness of the aggregated data from multiple sources.
+- The effective execution of browser actions (such as successful navigation, data extraction, error handling, and inclusion of security/performance metrics).
+Do not provide a final solution; only point out what was done well.
+
 """
         def_arbiter = """\
-You are the ArbiterAgent.
-You see the ExecutorAgent's answer, plus Critic and Praise.
-Your role: produce a "Rework Instruction" to help Executor refine the solution. 
-Never present the final solution or final code yourself. 
-Stay in the user's language. 
+You are the ArbiterAgent. Your role is to review the ExecutorAgent's answer along with the feedback from CriticAgent and PraiseAgent, and then produce a precise "Rework Instruction" for improvement. Include:
+- Specific recommendations for additional checks (for example, verifying SSL certificates, measuring page load times, and checking for errors).
+- Suggestions for clarifying ambiguous instructions or addressing missing details.
+- Guidelines for re-executing tasks with enhanced detail and reliability.
+Do not provide the final solution yourself.
+
 """
 
         sp_planner = st.text_area("PlannerAgent Prompt", def_planner, height=120)
@@ -174,9 +179,9 @@ Stay in the user's language.
             for f in up_files:
                 text = f.read().decode("utf-8", errors="ignore")
                 st.session_state.vector_store.add_documents([text])
-            st.success("Документы добавлены в векторный индекс.")
+            st.success("Документы добавлены в FAISS.")
 
-    # --- Сайдбар: параметры Ollama ---
+    # --- Параметры Ollama ---
     st.sidebar.title("Параметры Ollama")
     temperature = st.sidebar.slider("temperature", 0.0, 2.0, 0.8, 0.1)
     top_p = st.sidebar.slider("top_p", 0.0, 1.0, 0.9, 0.05)
@@ -192,9 +197,8 @@ Stay in the user's language.
     user_query = st.text_input("Введите задачу/запрос:")
 
     if st.button("Запустить"):
-        # Определяем язык (для информации):
         user_lang = detect_language(user_query)
-        st.markdown(f"**Определен язык пользователя:** `{user_lang}`")
+        st.markdown(f"**Определён язык:** `{user_lang}`")
 
         # Получаем агентов
         planner = st.session_state.planner_agent
@@ -203,13 +207,13 @@ Stay in the user's language.
         praise = st.session_state.praise_agent
         arbiter = st.session_state.arbiter_agent
         if not all([planner, executor, critic, praise, arbiter]):
-            st.error("Агенты не инициализированы. Сначала нажмите 'Инициализировать агентов'.")
+            st.error("Агенты не инициализированы. Нажмите 'Инициализировать агентов'.")
             return
 
         st.session_state.chain_trace = []
         st.session_state.final_answer = ""
 
-        # Настройки Ollama
+        # Параметры Ollama
         ollama_opts = dict(
             temperature=temperature,
             top_p=top_p,
@@ -219,32 +223,34 @@ Stay in the user's language.
             num_predict=num_predict
         )
 
-        # 1) PlannerAgent -> нач. инструкция
-        st.markdown("### Шаг 1: PlannerAgent (инструкция)")
+        # Шаг 1: PlannerAgent
+        st.markdown("### Шаг 1: PlannerAgent")
         plan_text = ""
         log_chain("PlannerAgent", "PROMPT", user_query)
-        plan_gen = planner.generate_instruction(user_query, stream=True, **ollama_opts)
-        # Постепенно обновляем
+        plan_gen = planner.generate_instruction(
+            user_query, 
+            st.session_state.vector_store, 
+            stream=True, 
+            **ollama_opts
+        )
         placeholder_plan = st.empty()
         for chunk in plan_gen:
             plan_text += chunk
             placeholder_plan.code(plan_text, language="markdown")
             time.sleep(0.02)
         log_chain("PlannerAgent", "RESPONSE", plan_text)
-
-        st.markdown("**Итоговая инструкция от Planner:**")
+        st.markdown("**Инструкция от Planner:**")
         st.code(plan_text, language="markdown")
 
         current_instruction = plan_text
 
-        # Запуск итераций
+        # Итерации
         for iteration in range(1, max_iterations + 1):
             st.markdown(f"## Итерация {iteration}")
 
-            # A) Executor (финальный ответ)
-            st.markdown("### ExecutorAgent: выдает решение/обновленный ответ")
+            # ExecutorAgent
+            st.markdown("### ExecutorAgent")
             log_chain("ExecutorAgent", "PROMPT", current_instruction)
-
             exec_text = ""
             placeholder_exec = st.empty()
             ex_gen = executor.execute_instruction(
@@ -266,8 +272,8 @@ Stay in the user's language.
             st.markdown("**Executor ответ:**")
             st.code(exec_text, language="markdown")
 
-            # B) CriticAgent (нет итогового решения)
-            st.markdown("### CriticAgent (только критика)")
+            # CriticAgent
+            st.markdown("### CriticAgent")
             cr_text = ""
             log_chain("CriticAgent", "PROMPT", exec_text)
             placeholder_cr = st.empty()
@@ -281,12 +287,11 @@ Stay in the user's language.
                     placeholder_cr.code(cr_text, language="markdown")
                     time.sleep(0.02)
             log_chain("CriticAgent", "RESPONSE", cr_text)
-
             st.markdown("**Критика:**")
             st.code(cr_text, language="markdown")
 
-            # C) PraiseAgent (нет итогового решения)
-            st.markdown("### PraiseAgent (только положительные стороны)")
+            # PraiseAgent
+            st.markdown("### PraiseAgent")
             pr_text = ""
             log_chain("PraiseAgent", "PROMPT", exec_text)
             placeholder_pr = st.empty()
@@ -300,13 +305,12 @@ Stay in the user's language.
                     placeholder_pr.code(pr_text, language="markdown")
                     time.sleep(0.02)
             log_chain("PraiseAgent", "RESPONSE", pr_text)
-
             st.markdown("**Похвала:**")
             st.code(pr_text, language="markdown")
 
-            # D) ArbiterAgent => ReworkInstruction
+            # ArbiterAgent (ReworkInstruction)
             if iteration < max_iterations:
-                st.markdown("### ArbiterAgent (ReworkInstruction, не финал)")
+                st.markdown("### ArbiterAgent (Rework Instruction)")
                 arb_text = ""
                 arb_prompt = f"Executor: {exec_text}\nCritic: {cr_text}\nPraise: {pr_text}"
                 log_chain("ArbiterAgent", "PROMPT", arb_prompt)
@@ -321,21 +325,16 @@ Stay in the user's language.
                         placeholder_arb.code(arb_text, language="markdown")
                         time.sleep(0.02)
                 log_chain("ArbiterAgent", "RESPONSE", arb_text)
-
-                st.markdown("**Rework Instruction от Arbiter:**")
+                st.markdown("**Rework Instruction:**")
                 st.code(arb_text, language="markdown")
-
                 current_instruction = arb_text
             else:
-                # Последняя итерация => Executor-ответ = final_answer
                 st.session_state.final_answer = exec_text
 
-        # Завершение
-        st.success("Итерационный цикл завершён.")
+        st.success("Итерации завершены.")
 
         st.markdown("## Итоговый ответ (ExecutorAgent)")
         if st.session_state.final_answer:
-            # Красивое окно
             st.markdown(
                 """
                 <div style="border:2px solid #2196F3; padding:10px; border-radius:5px; background-color:#E3F2FD;">
@@ -348,8 +347,7 @@ Stay in the user's language.
         else:
             st.warning("Final answer отсутствует.")
 
-    # Показ chain-of-thought
-    st.markdown("## Chain-of-thought Trace (Markdown + Code highlighting)")
+    st.markdown("## Chain-of-thought Trace")
     if st.session_state.chain_trace:
         display_chain_trace()
     else:
