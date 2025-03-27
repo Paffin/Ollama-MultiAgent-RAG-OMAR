@@ -2,6 +2,9 @@
 
 import sys
 import asyncio
+import time
+import re
+from typing import Optional
 
 # 1) Устанавливаем политику цикла событий ProactorEventLoopPolicy
 if sys.platform.startswith("win"):
@@ -12,9 +15,6 @@ import nest_asyncio
 nest_asyncio.apply()
 
 import streamlit as st
-import time
-import re
-
 from ollama_client import OllamaClient
 from agents import (
     PlannerAgent,
@@ -32,9 +32,22 @@ from prompts import (
     ARBITER_PROMPT
 )
 
+def check_ollama_server(url: str = "http://localhost:11434") -> bool:
+    """
+    Проверяет доступность Ollama сервера.
+    """
+    try:
+        client = OllamaClient(url)
+        client.list_models()
+        return True
+    except Exception as e:
+        st.error(f"Ошибка подключения к Ollama серверу: {e}")
+        return False
+
 def init_session_state():
+    """Инициализация состояния сессии"""
     if "ollama_client" not in st.session_state:
-        st.session_state.ollama_client = OllamaClient("http://localhost:11434")
+        st.session_state.ollama_client = None
     if "vector_store" not in st.session_state:
         st.session_state.vector_store = SimpleVectorStore()
     if "planner_agent" not in st.session_state:
@@ -51,34 +64,94 @@ def init_session_state():
         st.session_state.chain_trace = []
     if "final_answer" not in st.session_state:
         st.session_state.final_answer = ""
+    if "ollama_url" not in st.session_state:
+        st.session_state.ollama_url = "http://localhost:11434"
 
 def log_chain(agent_name: str, step_type: str, content: str):
+    """Логирование шагов в цепочке"""
     st.session_state.chain_trace.append({
         "agent": agent_name,
         "type": step_type,
-        "content": content
+        "content": content,
+        "timestamp": time.time()
     })
 
 def display_chain_trace():
+    """Отображение лога цепочки"""
     for i, record in enumerate(st.session_state.chain_trace):
         st.markdown(f"**Step {i+1} – {record['agent']} [{record['type']}]**")
         st.code(record["content"], language="markdown")
 
 def detect_language(user_query: str) -> str:
+    """Определение языка запроса"""
     cyr_count = len(re.findall(r'[а-яА-ЯёЁ]', user_query))
     return "ru" if cyr_count >= 3 else "en"
+
+def create_agents(client: OllamaClient, models: dict) -> bool:
+    """Создание агентов"""
+    try:
+        st.session_state.planner_agent = PlannerAgent(
+            name="Planner",
+            model_name=models["planner"],
+            client=client
+        )
+        st.session_state.executor_agent = ExecutorAgent(
+            name="Executor",
+            model_name=models["executor"],
+            client=client
+        )
+        st.session_state.critic_agent = CriticAgent(
+            name="Critic",
+            model_name=models["critic"],
+            client=client
+        )
+        st.session_state.praise_agent = PraiseAgent(
+            name="Praise",
+            model_name=models["praise"],
+            client=client
+        )
+        st.session_state.arbiter_agent = ArbiterAgent(
+            name="Arbiter",
+            model_name=models["arbiter"],
+            client=client
+        )
+        return True
+    except Exception as e:
+        st.error(f"Ошибка при создании агентов: {e}")
+        return False
 
 def main():
     st.title("MultiAgent System with Browser & DuckDuckGo")
 
     init_session_state()
+
+    # --- Настройка подключения к Ollama ---
+    with st.expander("Настройка подключения к Ollama"):
+        ollama_url = st.text_input("URL Ollama сервера", st.session_state.ollama_url)
+        if ollama_url != st.session_state.ollama_url:
+            st.session_state.ollama_url = ollama_url
+            if check_ollama_server(ollama_url):
+                st.session_state.ollama_client = OllamaClient(ollama_url)
+                st.success("Подключение к Ollama серверу установлено")
+            else:
+                st.error("Не удалось подключиться к Ollama серверу")
+                return
+
+    if not st.session_state.ollama_client:
+        st.error("Не настроено подключение к Ollama серверу")
+        return
+
     client = st.session_state.ollama_client
 
     # --- Настройка агентов ---
     with st.expander("Настройка агентов"):
-        models = client.list_models()
-        if not models:
-            st.warning("Не удалось получить список моделей Ollama.")
+        try:
+            models = client.list_models()
+            if not models:
+                st.warning("Не удалось получить список моделей Ollama.")
+                models = ["unknown"]
+        except Exception as e:
+            st.error(f"Ошибка при получении списка моделей: {e}")
             models = ["unknown"]
 
         model_planner = st.selectbox("Planner Model", models, index=0)
@@ -94,50 +167,29 @@ def main():
         sp_arbiter = st.text_area("ArbiterAgent Prompt", ARBITER_PROMPT, height=120)
 
         if st.button("Инициализировать агентов"):
-            from agents import (
-                PlannerAgent,
-                ExecutorAgent,
-                CriticAgent,
-                PraiseAgent,
-                ArbiterAgent
-            )
-            st.session_state.planner_agent = PlannerAgent(
-                name="Planner",
-                model_name=model_planner,
-                client=client
-            )
-            st.session_state.executor_agent = ExecutorAgent(
-                name="Executor",
-                model_name=model_executor,
-                client=client
-            )
-            st.session_state.critic_agent = CriticAgent(
-                name="Critic",
-                model_name=model_critic,
-                client=client
-            )
-            st.session_state.praise_agent = PraiseAgent(
-                name="Praise",
-                model_name=model_praise,
-                client=client
-            )
-            st.session_state.arbiter_agent = ArbiterAgent(
-                name="Arbiter",
-                model_name=model_arbiter,
-                client=client
-            )
-            st.session_state.chain_trace = []
-            st.session_state.final_answer = ""
-            st.success("Готово: агенты переинициализированы.")
+            models = {
+                "planner": model_planner,
+                "executor": model_executor,
+                "critic": model_critic,
+                "praise": model_praise,
+                "arbiter": model_arbiter
+            }
+            if create_agents(client, models):
+                st.session_state.chain_trace = []
+                st.session_state.final_answer = ""
+                st.success("Готово: агенты переинициализированы.")
 
     # --- Загрузка документов (RAG) ---
     with st.expander("Загрузка документов (RAG)"):
         up_files = st.file_uploader("Выберите TXT-файлы", accept_multiple_files=True)
         if up_files:
-            for f in up_files:
-                text = f.read().decode("utf-8", errors="ignore")
-                st.session_state.vector_store.add_documents([text])
-            st.success("Документы добавлены в FAISS.")
+            try:
+                for f in up_files:
+                    text = f.read().decode("utf-8", errors="ignore")
+                    st.session_state.vector_store.add_documents([text])
+                st.success("Документы добавлены в FAISS.")
+            except Exception as e:
+                st.error(f"Ошибка при загрузке документов: {e}")
 
     # --- Параметры Ollama ---
     st.sidebar.title("Параметры Ollama")
@@ -172,6 +224,10 @@ def main():
     user_query = st.text_input("Введите задачу/запрос:")
 
     if st.button("Запустить"):
+        if not user_query:
+            st.warning("Введите запрос")
+            return
+
         user_lang = detect_language(user_query)
         st.markdown(f"**Определён язык:** `{user_lang}`")
 
@@ -198,235 +254,246 @@ def main():
             num_predict=num_predict
         )
 
-        # Шаг 1: PlannerAgent
-        st.markdown("### Шаг 1: PlannerAgent")
-        plan_text = ""
-        log_chain("PlannerAgent", "PROMPT", user_query)
-        plan_gen = planner.generate_instruction(
-            user_query, 
-            st.session_state.vector_store, 
-            stream=True, 
-            **ollama_opts
-        )
-        placeholder_plan = st.empty()
-        for chunk in plan_gen:
-            plan_text += chunk
-            placeholder_plan.code(plan_text, language="markdown")
-            time.sleep(0.02)
-        log_chain("PlannerAgent", "RESPONSE", plan_text)
-        st.markdown("**Инструкция от Planner:**")
-        st.code(plan_text, language="markdown")
-
-        current_instruction = plan_text
-        current_quality = 0.0
-        previous_quality = 0.0
-        iteration = 1
-        should_continue = True
-
-        while iteration <= max_iterations and should_continue:
-            st.markdown(f"## Итерация {iteration}")
-
-            # ExecutorAgent
-            st.markdown("### ExecutorAgent")
-            log_chain("ExecutorAgent", "PROMPT", current_instruction)
-            exec_text = ""
-            placeholder_exec = st.empty()
-            ex_gen = executor.execute_instruction(
-                instruction=current_instruction,
-                vector_store=st.session_state.vector_store,
-                stream=True,
+        try:
+            # Шаг 1: PlannerAgent
+            st.markdown("### Шаг 1: PlannerAgent")
+            plan_text = ""
+            log_chain("PlannerAgent", "PROMPT", user_query)
+            plan_gen = planner.generate_instruction(
+                user_query, 
+                st.session_state.vector_store, 
+                stream=True, 
                 **ollama_opts
             )
-            if isinstance(ex_gen, str):
-                exec_text = ex_gen
-                placeholder_exec.code(exec_text, language="markdown")
-            else:
-                for ck in ex_gen:
-                    exec_text += ck
+            placeholder_plan = st.empty()
+            for chunk in plan_gen:
+                plan_text += chunk
+                placeholder_plan.code(plan_text, language="markdown")
+                time.sleep(0.02)
+            log_chain("PlannerAgent", "RESPONSE", plan_text)
+            st.markdown("**Инструкция от Planner:**")
+            st.code(plan_text, language="markdown")
+
+            current_instruction = plan_text
+            current_quality = 0.0
+            previous_quality = 0.0
+            iteration = 1
+            should_continue = True
+            stagnation_count = 0
+
+            while iteration <= max_iterations and should_continue:
+                st.markdown(f"## Итерация {iteration}")
+
+                # ExecutorAgent
+                st.markdown("### ExecutorAgent")
+                log_chain("ExecutorAgent", "PROMPT", current_instruction)
+                exec_text = ""
+                placeholder_exec = st.empty()
+                ex_gen = executor.execute_instruction(
+                    instruction=current_instruction,
+                    vector_store=st.session_state.vector_store,
+                    stream=True,
+                    **ollama_opts
+                )
+                if isinstance(ex_gen, str):
+                    exec_text = ex_gen
                     placeholder_exec.code(exec_text, language="markdown")
-                    time.sleep(0.02)
-
-            log_chain("ExecutorAgent", "RESPONSE", exec_text)
-            st.markdown("**Executor ответ:**")
-            st.code(exec_text, language="markdown")
-
-            # Оценка качества ответа
-            current_quality = executor.evaluate_response_quality(exec_text)
-            st.markdown(f"**Качество ответа:** {current_quality:.2f}")
-
-            # Проверка необходимости продолжения итераций
-            if iteration_mode == "Фиксированное количество":
-                should_continue = iteration < max_iterations and current_quality < min_quality
-                st.markdown(f"**Текущее качество:** {current_quality:.2f} / {min_quality:.2f}")
-            elif iteration_mode == "Динамическое (по качеству)":
-                improvement = current_quality - previous_quality
-                stagnation = improvement < stagnation_threshold
-                should_continue = (
-                    iteration < max_iterations and 
-                    current_quality < quality_threshold and 
-                    improvement > min_improvement and
-                    not stagnation
-                )
-                st.markdown(f"**Улучшение:** {improvement:.2f}")
-                st.markdown(f"**Порог застоя:** {stagnation_threshold:.2f}")
-                if stagnation:
-                    st.warning("Обнаружен застой в улучшении качества")
-            else:  # Динамическое (по улучшению)
-                improvement = current_quality - previous_quality
-                stagnation = improvement < improvement_threshold
-                should_continue = (
-                    iteration < max_iterations and 
-                    improvement > improvement_threshold and 
-                    current_quality > min_quality and
-                    not stagnation
-                )
-                st.markdown(f"**Улучшение:** {improvement:.2f}")
-                st.markdown(f"**Текущее качество:** {current_quality:.2f} / {min_quality:.2f}")
-                if stagnation:
-                    st.warning("Обнаружен застой в улучшении качества")
-            
-            previous_quality = current_quality
-
-            # Если не последняя итерация и нужно продолжать
-            if iteration < max_iterations and should_continue:
-                # CriticAgent
-                st.markdown("### CriticAgent")
-                cr_text = ""
-                log_chain("CriticAgent", "PROMPT", exec_text)
-                placeholder_cr = st.empty()
-                cr_gen = critic.criticize(exec_text, stream=True, **ollama_opts)
-                if isinstance(cr_gen, str):
-                    cr_text = cr_gen
-                    placeholder_cr.code(cr_text, language="markdown")
                 else:
-                    for ck in cr_gen:
-                        cr_text += ck
+                    for ck in ex_gen:
+                        exec_text += ck
+                        placeholder_exec.code(exec_text, language="markdown")
+                        time.sleep(0.02)
+
+                log_chain("ExecutorAgent", "RESPONSE", exec_text)
+                st.markdown("**Executor ответ:**")
+                st.code(exec_text, language="markdown")
+
+                # Оценка качества ответа
+                current_quality = executor.evaluate_response_quality(exec_text)
+                st.markdown(f"**Качество ответа:** {current_quality:.2f}")
+
+                # Проверка необходимости продолжения итераций
+                if iteration_mode == "Фиксированное количество":
+                    should_continue = iteration < max_iterations and current_quality < min_quality
+                    st.markdown(f"**Текущее качество:** {current_quality:.2f} / {min_quality:.2f}")
+                elif iteration_mode == "Динамическое (по качеству)":
+                    improvement = current_quality - previous_quality
+                    stagnation = improvement < stagnation_threshold
+                    if stagnation:
+                        stagnation_count += 1
+                    should_continue = (
+                        iteration < max_iterations and 
+                        current_quality < quality_threshold and 
+                        improvement > min_improvement and
+                        not stagnation
+                    )
+                    st.markdown(f"**Улучшение:** {improvement:.2f}")
+                    st.markdown(f"**Порог застоя:** {stagnation_threshold:.2f}")
+                    if stagnation:
+                        st.warning("Обнаружен застой в улучшении качества")
+                else:  # Динамическое (по улучшению)
+                    improvement = current_quality - previous_quality
+                    stagnation = improvement < improvement_threshold
+                    if stagnation:
+                        stagnation_count += 1
+                    should_continue = (
+                        iteration < max_iterations and 
+                        improvement > improvement_threshold and 
+                        current_quality > min_quality and
+                        not stagnation
+                    )
+                    st.markdown(f"**Улучшение:** {improvement:.2f}")
+                    st.markdown(f"**Текущее качество:** {current_quality:.2f} / {min_quality:.2f}")
+                    if stagnation:
+                        st.warning("Обнаружен застой в улучшении качества")
+                
+                previous_quality = current_quality
+
+                # Если не последняя итерация и нужно продолжать
+                if iteration < max_iterations and should_continue:
+                    # CriticAgent
+                    st.markdown("### CriticAgent")
+                    cr_text = ""
+                    log_chain("CriticAgent", "PROMPT", exec_text)
+                    placeholder_cr = st.empty()
+                    cr_gen = critic.criticize(exec_text, stream=True, **ollama_opts)
+                    if isinstance(cr_gen, str):
+                        cr_text = cr_gen
                         placeholder_cr.code(cr_text, language="markdown")
-                        time.sleep(0.02)
-                log_chain("CriticAgent", "RESPONSE", cr_text)
-                st.markdown("**Критика:**")
-                st.code(cr_text, language="markdown")
+                    else:
+                        for ck in cr_gen:
+                            cr_text += ck
+                            placeholder_cr.code(cr_text, language="markdown")
+                            time.sleep(0.02)
+                    log_chain("CriticAgent", "RESPONSE", cr_text)
+                    st.markdown("**Критика:**")
+                    st.code(cr_text, language="markdown")
 
-                # PraiseAgent
-                st.markdown("### PraiseAgent")
-                pr_text = ""
-                log_chain("PraiseAgent", "PROMPT", exec_text)
-                placeholder_pr = st.empty()
-                pr_gen = praise.praise(exec_text, stream=True, **ollama_opts)
-                if isinstance(pr_gen, str):
-                    pr_text = pr_gen
-                    placeholder_pr.code(pr_text, language="markdown")
-                else:
-                    for ck in pr_gen:
-                        pr_text += ck
+                    # PraiseAgent
+                    st.markdown("### PraiseAgent")
+                    pr_text = ""
+                    log_chain("PraiseAgent", "PROMPT", exec_text)
+                    placeholder_pr = st.empty()
+                    pr_gen = praise.praise(exec_text, stream=True, **ollama_opts)
+                    if isinstance(pr_gen, str):
+                        pr_text = pr_gen
                         placeholder_pr.code(pr_text, language="markdown")
-                        time.sleep(0.02)
-                log_chain("PraiseAgent", "RESPONSE", pr_text)
-                st.markdown("**Похвала:**")
-                st.code(pr_text, language="markdown")
+                    else:
+                        for ck in pr_gen:
+                            pr_text += ck
+                            placeholder_pr.code(pr_text, language="markdown")
+                            time.sleep(0.02)
+                    log_chain("PraiseAgent", "RESPONSE", pr_text)
+                    st.markdown("**Похвала:**")
+                    st.code(pr_text, language="markdown")
 
-                # ArbiterAgent (ReworkInstruction)
-                st.markdown("### ArbiterAgent (Rework Instruction)")
-                arb_text = ""
-                arb_prompt = f"Executor: {exec_text}\nCritic: {cr_text}\nPraise: {pr_text}"
-                log_chain("ArbiterAgent", "PROMPT", arb_prompt)
-                placeholder_arb = st.empty()
-                arb_gen = arbiter.produce_rework_instruction(exec_text, cr_text, pr_text, stream=True, **ollama_opts)
-                if isinstance(arb_gen, str):
-                    arb_text = arb_gen
-                    placeholder_arb.code(arb_text, language="markdown")
-                else:
-                    for ck in arb_gen:
-                        arb_text += ck
+                    # ArbiterAgent (ReworkInstruction)
+                    st.markdown("### ArbiterAgent (Rework Instruction)")
+                    arb_text = ""
+                    arb_prompt = f"Executor: {exec_text}\nCritic: {cr_text}\nPraise: {pr_text}"
+                    log_chain("ArbiterAgent", "PROMPT", arb_prompt)
+                    placeholder_arb = st.empty()
+                    arb_gen = arbiter.produce_rework_instruction(exec_text, cr_text, pr_text, stream=True, **ollama_opts)
+                    if isinstance(arb_gen, str):
+                        arb_text = arb_gen
                         placeholder_arb.code(arb_text, language="markdown")
-                        time.sleep(0.02)
-                log_chain("ArbiterAgent", "RESPONSE", arb_text)
-                st.markdown("**Rework Instruction:**")
-                st.code(arb_text, language="markdown")
+                    else:
+                        for ck in arb_gen:
+                            arb_text += ck
+                            placeholder_arb.code(arb_text, language="markdown")
+                            time.sleep(0.02)
+                    log_chain("ArbiterAgent", "RESPONSE", arb_text)
+                    st.markdown("**Rework Instruction:**")
+                    st.code(arb_text, language="markdown")
 
-                # Проверяем, нужно ли изменить тип инструкции
-                instruction_type_match = re.search(r'\[Тип инструкции\]:\s*(\w+)\s*/\s*(\w+)', arb_text)
-                if instruction_type_match:
-                    current_type, new_type = instruction_type_match.groups()
-                    if current_type != new_type:
-                        st.markdown(f"**Изменение типа инструкции:** {current_type} -> {new_type}")
-                        # Извлекаем обоснование
-                        justification_match = re.search(r'\[Обоснование\]:\s*(.*?)(?=\[|$)', arb_text)
-                        if justification_match:
-                            st.markdown(f"**Обоснование:** {justification_match.group(1)}")
-                        
-                        # Формируем новую инструкцию
-                        if new_type == 'ducksearch':
-                            current_instruction = f"ducksearch: {user_query}"
-                        elif new_type == 'browser':
-                            current_instruction = f"browser: {user_query}"
-                        elif new_type == 'search':
-                            current_instruction = f"search: {user_query}"
-                        elif new_type == 'cmd':
-                            current_instruction = f"cmd: {user_query}"
-                        elif new_type == 'ls':
-                            current_instruction = f"ls: {user_query}"
-                        elif new_type == 'visual':
-                            current_instruction = f"visual: {user_query}"
-                        elif new_type == 'complex':
-                            # Разбиваем запрос на шаги
-                            steps = []
-                            parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
-                            for part in parts:
-                                part = part.strip()
-                                if part and len(part) > 2:
-                                    steps.append(part)
+                    # Проверяем, нужно ли изменить тип инструкции
+                    instruction_type_match = re.search(r'\[Тип инструкции\]:\s*(\w+)\s*/\s*(\w+)', arb_text)
+                    if instruction_type_match:
+                        current_type, new_type = instruction_type_match.groups()
+                        if current_type != new_type:
+                            st.markdown(f"**Изменение типа инструкции:** {current_type} -> {new_type}")
+                            # Извлекаем обоснование
+                            justification_match = re.search(r'\[Обоснование\]:\s*(.*?)(?=\[|$)', arb_text)
+                            if justification_match:
+                                st.markdown(f"**Обоснование:** {justification_match.group(1)}")
                             
-                            if len(steps) > 1:
-                                full_steps = []
-                                current_pos = 0
-                                for step in steps:
-                                    pos = user_query.lower().find(step, current_pos)
-                                    if pos != -1:
-                                        full_step = user_query[pos:pos + len(step)]
-                                        full_steps.append(full_step)
-                                        current_pos = pos + len(step)
+                            # Формируем новую инструкцию
+                            if new_type == 'ducksearch':
+                                current_instruction = f"ducksearch: {user_query}"
+                            elif new_type == 'browser':
+                                current_instruction = f"browser: {user_query}"
+                            elif new_type == 'search':
+                                current_instruction = f"search: {user_query}"
+                            elif new_type == 'cmd':
+                                current_instruction = f"cmd: {user_query}"
+                            elif new_type == 'ls':
+                                current_instruction = f"ls: {user_query}"
+                            elif new_type == 'visual':
+                                current_instruction = f"visual: {user_query}"
+                            elif new_type == 'complex':
+                                # Разбиваем запрос на шаги
+                                steps = []
+                                parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
+                                for part in parts:
+                                    part = part.strip()
+                                    if part and len(part) > 2:
+                                        steps.append(part)
                                 
-                                if full_steps:
-                                    current_instruction = "complex: " + "; ".join(full_steps)
+                                if len(steps) > 1:
+                                    full_steps = []
+                                    current_pos = 0
+                                    for step in steps:
+                                        pos = user_query.lower().find(step, current_pos)
+                                        if pos != -1:
+                                            full_step = user_query[pos:pos + len(step)]
+                                            full_steps.append(full_step)
+                                            current_pos = pos + len(step)
+                                    
+                                    if full_steps:
+                                        current_instruction = "complex: " + "; ".join(full_steps)
+                                    else:
+                                        current_instruction = f"llm: {user_query}"
                                 else:
                                     current_instruction = f"llm: {user_query}"
                             else:
                                 current_instruction = f"llm: {user_query}"
+                            
+                            st.markdown("**Новая инструкция:**")
+                            st.code(current_instruction, language="markdown")
                         else:
-                            current_instruction = f"llm: {user_query}"
-                        
-                        st.markdown("**Новая инструкция:**")
-                        st.code(current_instruction, language="markdown")
+                            current_instruction = arb_text
                     else:
                         current_instruction = arb_text
                 else:
-                    current_instruction = arb_text
+                    st.session_state.final_answer = exec_text
+
+                iteration += 1
+
+            if iteration > max_iterations:
+                st.warning("Достигнуто максимальное количество итераций.")
+            elif not should_continue:
+                st.success("Достигнут целевой показатель качества/улучшения.")
+
+            st.success("Итерации завершены.")
+
+            st.markdown("## Итоговый ответ (ExecutorAgent)")
+            if st.session_state.final_answer:
+                st.markdown(
+                    """
+                    <div style="border:2px solid #2196F3; padding:10px; border-radius:5px; background-color:#E3F2FD;">
+                    <h4 style="color:#2196F3; margin-top:0;">Final Answer</h4>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.markdown(st.session_state.final_answer, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
             else:
-                st.session_state.final_answer = exec_text
+                st.warning("Final answer отсутствует.")
 
-            iteration += 1
-
-        if iteration > max_iterations:
-            st.warning("Достигнуто максимальное количество итераций.")
-        elif not should_continue:
-            st.success("Достигнут целевой показатель качества/улучшения.")
-
-        st.success("Итерации завершены.")
-
-        st.markdown("## Итоговый ответ (ExecutorAgent)")
-        if st.session_state.final_answer:
-            st.markdown(
-                """
-                <div style="border:2px solid #2196F3; padding:10px; border-radius:5px; background-color:#E3F2FD;">
-                <h4 style="color:#2196F3; margin-top:0;">Final Answer</h4>
-                """,
-                unsafe_allow_html=True
-            )
-            st.markdown(st.session_state.final_answer, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.warning("Final answer отсутствует.")
+        except Exception as e:
+            st.error(f"Произошла ошибка при обработке запроса: {e}")
+            st.error("Проверьте логи для более подробной информации")
+            print(f"Ошибка: {e}")
 
     st.markdown("## Chain-of-thought Trace")
     if st.session_state.chain_trace:

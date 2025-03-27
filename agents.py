@@ -99,10 +99,20 @@ class BaseAgent:
                 return min(max(score, 0.0), 1.0)  # Ограничиваем диапазон
             
             # Если не удалось найти оценку, пробуем найти число в тексте
-            score = float(re.search(r'0\.\d+|1\.0|1', evaluation).group())
-            return min(max(score, 0.0), 1.0)
-        except:
-            return 0.5  # Возвращаем среднее значение в случае ошибки
+            number_match = re.search(r'0\.\d+|1\.0|1', evaluation)
+            if number_match:
+                score = float(number_match.group())
+                return min(max(score, 0.0), 1.0)
+            
+            print(f"Не удалось извлечь оценку из ответа: {evaluation}")
+            return 0.5
+            
+        except (ValueError, TypeError) as e:
+            print(f"Ошибка при извлечении оценки: {e}")
+            return 0.5
+        except Exception as e:
+            print(f"Неожиданная ошибка при оценке качества: {e}")
+            return 0.5
 
 class PlannerAgent(BaseAgent):
     """
@@ -117,87 +127,96 @@ class PlannerAgent(BaseAgent):
         super().__init__(name, PLANNER_PROMPT, model_name, client)
 
     def analyze_query(self, user_query: str) -> str:
-        # Отправляем запрос к LLM для анализа намерений пользователя
-        prompt = PLANNER_ANALYSIS_PROMPT.format(user_query=user_query)
-        analysis = self.client.generate(prompt=prompt, model=self.model_name, stream=False)
-    
-        # Если вернулся генератор, превращаем его в строку
-        if not isinstance(analysis, str):
-            analysis = ''.join(analysis)
+        """
+        Анализирует запрос пользователя и определяет тип инструкции.
+        Всегда возвращает строку с префиксом типа инструкции.
+        """
+        try:
+            # Отправляем запрос к LLM для анализа намерений пользователя
+            prompt = PLANNER_ANALYSIS_PROMPT.format(user_query=user_query)
+            analysis = self.client.generate(prompt=prompt, model=self.model_name, stream=False)
+        
+            # Если вернулся генератор, превращаем его в строку
+            if not isinstance(analysis, str):
+                analysis = ''.join(analysis)
 
-        # Извлекаем все важные компоненты анализа
-        analysis_match = re.search(r'\[Анализ\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
-        recommendation_match = re.search(r'\[Рекомендация\]:\s*(\w+)', analysis)
-        justification_match = re.search(r'\[Обоснование\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
-        additional_match = re.search(r'\[Дополнительно\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+            # Извлекаем все важные компоненты анализа
+            analysis_match = re.search(r'\[Анализ\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+            recommendation_match = re.search(r'\[Рекомендация\]:\s*(\w+)', analysis)
+            justification_match = re.search(r'\[Обоснование\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
+            additional_match = re.search(r'\[Дополнительно\]:\s*(.*?)(?=\[|$)', analysis, re.DOTALL)
 
-        # Определяем тип запроса и необходимые действия
-        query_type = None
-        required_actions = []
-        data_sources = []
+            # Определяем тип запроса и необходимые действия
+            query_type = None
+            required_actions = []
+            data_sources = []
 
-        if analysis_match:
-            analysis_text = analysis_match.group(1).strip()
-            # Анализируем тип запроса
-            if any(word in analysis_text.lower() for word in ['курс', 'погода', 'новости', 'актуальный', 'сейчас']):
-                query_type = 'ducksearch'
-            elif any(word in analysis_text.lower() for word in ['браузер', 'сайт', 'страница', 'форма', 'регистрация']):
-                query_type = 'browser'
-            elif any(word in analysis_text.lower() for word in ['файл', 'директория', 'папка', 'система']):
-                query_type = 'cmd'
-            elif any(word in analysis_text.lower() for word in ['изображение', 'скриншот', 'фото', 'картинка']):
-                query_type = 'visual'
-            elif any(word in analysis_text.lower() for word in ['и', 'затем', 'после', 'потом', 'сначала', 'далее']):
-                query_type = 'complex'
-            elif any(word in analysis_text.lower() for word in ['поиск', 'найти', 'найти в']):
-                query_type = 'search'
+            if analysis_match:
+                analysis_text = analysis_match.group(1).strip()
+                # Анализируем тип запроса
+                if any(word in analysis_text.lower() for word in ['курс', 'погода', 'новости', 'актуальный', 'сейчас']):
+                    query_type = 'ducksearch'
+                elif any(word in analysis_text.lower() for word in ['браузер', 'сайт', 'страница', 'форма', 'регистрация']):
+                    query_type = 'browser'
+                elif any(word in analysis_text.lower() for word in ['файл', 'директория', 'папка', 'система']):
+                    query_type = 'cmd'
+                elif any(word in analysis_text.lower() for word in ['изображение', 'скриншот', 'фото', 'картинка']):
+                    query_type = 'visual'
+                elif any(word in analysis_text.lower() for word in ['и', 'затем', 'после', 'потом', 'сначала', 'далее']):
+                    query_type = 'complex'
+                elif any(word in analysis_text.lower() for word in ['поиск', 'найти', 'найти в']):
+                    query_type = 'search'
 
-        # Если тип не определен по анализу, используем рекомендацию
-        if not query_type and recommendation_match:
-            recommendation = recommendation_match.group(1).lower()
-            if recommendation in ['ducksearch', 'browser', 'cmd', 'visual', 'complex', 'search']:
-                query_type = recommendation
+            # Если тип не определен по анализу, используем рекомендацию
+            if not query_type and recommendation_match:
+                recommendation = recommendation_match.group(1).lower()
+                if recommendation in ['ducksearch', 'browser', 'cmd', 'visual', 'complex', 'search']:
+                    query_type = recommendation
 
-        # Формируем инструкцию на основе определенного типа
-        if query_type:
-            if query_type == 'ducksearch':
-                return f"ducksearch: {user_query}"
-            elif query_type == 'browser':
-                return f"browser: {user_query}"
-            elif query_type == 'cmd':
-                return f"cmd: {user_query}"
-            elif query_type == 'visual':
-                return f"visual: {user_query}"
-            elif query_type == 'search':
-                return f"search: {user_query}"
-            elif query_type == 'complex':
-                # Разбиваем запрос на шаги
-                steps = []
-                # Разбиваем по союзам и предлогам
-                parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
-                for part in parts:
-                    part = part.strip()
-                    if part and len(part) > 2:  # Игнорируем слишком короткие части
-                        steps.append(part)
-                
-                if len(steps) > 1:
-                    # Формируем комплексное решение с полными шагами
-                    full_steps = []
-                    current_pos = 0
-                    for step in steps:
-                        # Находим позицию шага в оригинальном запросе
-                        pos = user_query.lower().find(step, current_pos)
-                        if pos != -1:
-                            # Берем оригинальный текст шага с сохранением регистра
-                            full_step = user_query[pos:pos + len(step)]
-                            full_steps.append(full_step)
-                            current_pos = pos + len(step)
+            # Формируем инструкцию на основе определенного типа
+            if query_type:
+                if query_type == 'ducksearch':
+                    return f"ducksearch: {user_query}"
+                elif query_type == 'browser':
+                    return f"browser: {user_query}"
+                elif query_type == 'cmd':
+                    return f"cmd: {user_query}"
+                elif query_type == 'visual':
+                    return f"visual: {user_query}"
+                elif query_type == 'search':
+                    return f"search: {user_query}"
+                elif query_type == 'complex':
+                    # Разбиваем запрос на шаги
+                    steps = []
+                    # Разбиваем по союзам и предлогам
+                    parts = re.split(r'\s+(?:и|затем|после|потом|сначала|далее|затем|в конце)\s+', user_query.lower())
+                    for part in parts:
+                        part = part.strip()
+                        if part and len(part) > 2:  # Игнорируем слишком короткие части
+                            steps.append(part)
                     
-                    if full_steps:
-                        return "complex: " + "; ".join(full_steps)
+                    if len(steps) > 1:
+                        # Формируем комплексное решение с полными шагами
+                        full_steps = []
+                        current_pos = 0
+                        for step in steps:
+                            # Находим позицию шага в оригинальном запросе
+                            pos = user_query.lower().find(step, current_pos)
+                            if pos != -1:
+                                # Берем оригинальный текст шага с сохранением регистра
+                                full_step = user_query[pos:pos + len(step)]
+                                full_steps.append(full_step)
+                                current_pos = pos + len(step)
+                        
+                        if full_steps:
+                            return "complex: " + "; ".join(full_steps)
 
-        # Если не удалось определить тип запроса, проверяем локальные данные
-        return user_query
+            # Если не удалось определить тип запроса, используем LLM
+            return f"llm: {user_query}"
+            
+        except Exception as e:
+            print(f"Ошибка при анализе запроса: {e}")
+            return f"llm: {user_query}"  # В случае ошибки используем LLM
 
     def generate_instruction(
         self, 
