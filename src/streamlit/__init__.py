@@ -1,5 +1,5 @@
 """
-Streamlit интерфейс для OMAR
+Модуль Streamlit интерфейса
 """
 
 from .app import run
