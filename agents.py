@@ -279,8 +279,10 @@ class ExecutorAgent(BaseAgent):
         self.add_message("user", instruction)
         instr_lower = instruction.lower()
 
-        # Инициализация переменной steps
+        # Инициализация переменных
         steps = []
+        goal = None
+        required_data = []
 
         # 1) Комплексное решение (приоритетная ветка)
         if instr_lower.startswith("complex:"):
