@@ -30,11 +30,13 @@ setup(
     ],
     python_requires=">=3.8",
     install_requires=[
-        "streamlit",
-        "plotly",
-        "pandas",
-        "requests",
-        "nest-asyncio"
+        "streamlit>=1.32.0",
+        "plotly>=5.18.0",
+        "pandas>=2.2.0",
+        "requests>=2.31.0",
+        "nest-asyncio>=1.6.0",
+        "python-dotenv>=1.0.0",
+        "typing-extensions>=4.9.0",
     ],
     entry_points={
         "console_scripts": [
