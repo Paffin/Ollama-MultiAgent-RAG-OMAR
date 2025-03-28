@@ -168,7 +168,21 @@ def main():
         
         # Инициализация компонентов
         agent_chain = AgentChain(st.session_state.agent_chain)
-        analytics_dashboard = AnalyticsDashboard(systems['analytics'].get_all_stats())
+        agent_stats = systems['analytics'].get_agent_stats()
+        analytics_data = {
+            'total_stats': {
+                'total_calls': sum(stats['total_calls'] for stats in agent_stats.values()),
+                'successful_calls': sum(stats['successful_calls'] for stats in agent_stats.values()),
+                'failed_calls': sum(stats['failed_calls'] for stats in agent_stats.values()),
+                'total_duration': sum(stats['total_duration'] for stats in agent_stats.values()),
+                'avg_duration': sum(stats['avg_duration'] for stats in agent_stats.values()) / len(agent_stats) if agent_stats else 0,
+                'error_count': sum(stats['error_count'] for stats in agent_stats.values())
+            },
+            'efficiency_scores': {
+                name: stats['success_rate'] * 100 for name, stats in agent_stats.items()
+            }
+        }
+        analytics_dashboard = AnalyticsDashboard(analytics_data)
         data_panel = DataProcessingPanel(
             systems['data_processor'],
             systems['data_validator'],
