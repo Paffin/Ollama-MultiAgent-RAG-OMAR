@@ -249,4 +249,104 @@ class SettingsPanel:
                 st.success("Настройки сохранены")
                 st.rerun()
             except Exception as e:
-                st.error(f"Ошибка сохранения настроек: {str(e)}") 
+                st.error(f"Ошибка сохранения настроек: {str(e)}")
+
+class AgentInteractionPanel:
+    """Компонент для взаимодействия с агентами"""
+    def __init__(self, systems):
+        self.systems = systems
+        self.agents = {
+            "planner": PlannerAgent(systems['ollama_client']),
+            "executor": ExecutorAgent(systems['ollama_client']),
+            "critic": CriticAgent(systems['ollama_client']),
+            "praise": PraiseAgent(systems['ollama_client']),
+            "arbiter": ArbiterAgent(systems['ollama_client'])
+        }
+        
+    def render(self):
+        """Отображение панели взаимодействия с агентами"""
+        st.subheader("Взаимодействие с агентами")
+        
+        # Ввод запроса
+        query = st.text_area("Введите ваш запрос")
+        
+        if st.button("Обработать запрос"):
+            if not query:
+                st.warning("Введите запрос")
+                return
+                
+            try:
+                # Планирование
+                with st.spinner("Планирование..."):
+                    plan = self.agents["planner"].process(query)
+                    st.write("### План действий")
+                    st.write(plan)
+                    
+                # Выполнение
+                with st.spinner("Выполнение..."):
+                    result = self.agents["executor"].process(plan)
+                    st.write("### Результат выполнения")
+                    st.write(result)
+                    
+                # Критика
+                with st.spinner("Анализ результата..."):
+                    critique = self.agents["critic"].process(result)
+                    st.write("### Критический анализ")
+                    st.write(critique)
+                    
+                # Похвала
+                with st.spinner("Оценка качества..."):
+                    praise = self.agents["praise"].process(result)
+                    st.write("### Положительные аспекты")
+                    st.write(praise)
+                    
+                # Арбитраж
+                with st.spinner("Финальная оценка..."):
+                    final_verdict = self.agents["arbiter"].process({
+                        "query": query,
+                        "plan": plan,
+                        "result": result,
+                        "critique": critique,
+                        "praise": praise
+                    })
+                    st.write("### Финальное решение")
+                    st.write(final_verdict)
+                    
+                # Добавляем в цепочку
+                st.session_state.agent_chain.append({
+                    "agent": "planner",
+                    "type": "plan",
+                    "content": plan,
+                    "timestamp": datetime.now()
+                })
+                st.session_state.agent_chain.append({
+                    "agent": "executor",
+                    "type": "result",
+                    "content": result,
+                    "timestamp": datetime.now()
+                })
+                st.session_state.agent_chain.append({
+                    "agent": "critic",
+                    "type": "critique",
+                    "content": critique,
+                    "timestamp": datetime.now()
+                })
+                st.session_state.agent_chain.append({
+                    "agent": "praise",
+                    "type": "praise",
+                    "content": praise,
+                    "timestamp": datetime.now()
+                })
+                st.session_state.agent_chain.append({
+                    "agent": "arbiter",
+                    "type": "verdict",
+                    "content": final_verdict,
+                    "timestamp": datetime.now()
+                })
+                
+                st.success("Запрос успешно обработан")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Ошибка при обработке запроса: {str(e)}")
+                self.systems['logger'].error(f"Ошибка при обработке запроса: {str(e)}") 

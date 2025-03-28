@@ -51,7 +51,8 @@ from streamlite.components import (
     AnalyticsDashboard,
     DataProcessingPanel,
     NotificationPanel,
-    SettingsPanel
+    SettingsPanel,
+    AgentInteractionPanel
 )
 
 def check_ollama_server(url: str, max_retries: int = 3, timeout: int = 5) -> bool:
@@ -256,6 +257,7 @@ def main():
         )
         notification_panel = NotificationPanel(systems['notifications'])
         settings_panel = SettingsPanel(systems['config'])
+        agent_panel = AgentInteractionPanel(systems)
         
         # Отображение компонентов
         with st.sidebar:
@@ -263,6 +265,7 @@ def main():
             notification_panel.render()
         
         # Основной контент
+        agent_panel.render()
         agent_chain.render()
         analytics_dashboard.render()
         data_panel.render()
