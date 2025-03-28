@@ -2,7 +2,7 @@ import sys
 import asyncio
 from pathlib import Path
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, List
 import time
 import streamlit as st
 
@@ -144,6 +144,47 @@ def init_systems():
         handle_error(e, "Инициализация систем")
         raise
 
+async def get_available_models(ollama_client: OllamaClient) -> List[str]:
+    """
+    Получение списка доступных моделей
+    
+    Args:
+        ollama_client: Клиент Ollama
+        
+    Returns:
+        Список доступных моделей
+    """
+    try:
+        return await ollama_client.list_models()
+    except Exception as e:
+        st.error(f"Ошибка при получении списка моделей: {str(e)}")
+        return []
+
+def select_models(available_models: List[str], config: ConfigManager) -> Dict[str, str]:
+    """
+    Выбор моделей через интерфейс
+    
+    Args:
+        available_models: Список доступных моделей
+        config: Конфигурация
+        
+    Returns:
+        Словарь с выбранными моделями
+    """
+    st.subheader("Выбор моделей для агентов")
+    
+    selected_models = {}
+    for agent_type in ["planner", "executor", "critic", "praise", "arbiter"]:
+        current_model = config.ollama.models.get(agent_type)
+        selected_model = st.selectbox(
+            f"Модель для {agent_type}",
+            options=available_models,
+            index=available_models.index(current_model) if current_model in available_models else 0
+        )
+        selected_models[agent_type] = selected_model
+    
+    return selected_models
+
 def main():
     """Главная функция приложения"""
     try:
@@ -165,6 +206,19 @@ def main():
             
         # Заголовок
         st.title("OMAR - Multi-Agent RAG System")
+        
+        # Получение списка доступных моделей
+        available_models = asyncio.run(get_available_models(systems['ollama_client']))
+        
+        if not available_models:
+            st.error("Не удалось получить список моделей. Убедитесь, что сервер Ollama запущен.")
+            return
+            
+        # Выбор моделей
+        selected_models = select_models(available_models, systems['config'])
+        
+        # Обновление конфигурации
+        systems['config'].ollama.models = selected_models
         
         # Инициализация компонентов
         agent_chain = AgentChain(st.session_state.agent_chain)
@@ -196,10 +250,10 @@ def main():
             settings_panel.render()
             notification_panel.render()
         
-        with st.main():
-            agent_chain.render()
-            analytics_dashboard.render()
-            data_panel.render()
+        # Основной контент
+        agent_chain.render()
+        analytics_dashboard.render()
+        data_panel.render()
             
     except Exception as e:
         handle_error(e, "Запуск приложения")

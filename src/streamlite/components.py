@@ -192,6 +192,11 @@ class SettingsPanel:
             key="ollama_base_url"
         )
         
+        # Отображение выбранных моделей
+        st.write("#### Выбранные модели")
+        for agent_type, model in self.config.ollama.models.items():
+            st.write(f"{agent_type}: {model}")
+        
         # Настройки кэша
         st.write("### Настройки кэша")
         cache_enabled = st.checkbox(
