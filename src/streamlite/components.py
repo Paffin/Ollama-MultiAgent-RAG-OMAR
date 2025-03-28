@@ -188,7 +188,7 @@ class SettingsPanel:
         st.write("### Настройки Ollama")
         base_url = st.text_input(
             "Base URL",
-            value=self.config.get('ollama', {}).get('base_url', ''),
+            value=self.config.ollama.base_url,
             key="ollama_base_url"
         )
         
@@ -196,7 +196,7 @@ class SettingsPanel:
         st.write("### Настройки кэша")
         cache_enabled = st.checkbox(
             "Включить кэш",
-            value=self.config.get('cache', {}).get('enabled', True),
+            value=self.config.cache.enabled,
             key="cache_enabled"
         )
         
@@ -204,14 +204,14 @@ class SettingsPanel:
             ttl = st.number_input(
                 "Время жизни кэша (секунды)",
                 min_value=1,
-                value=self.config.get('cache', {}).get('ttl', 3600),
+                value=self.config.cache.ttl_seconds,
                 key="cache_ttl"
             )
             
             max_size = st.number_input(
                 "Максимальный размер кэша (МБ)",
                 min_value=1,
-                value=self.config.get('cache', {}).get('max_size', 100),
+                value=self.config.cache.max_size_mb,
                 key="cache_max_size"
             )
             
@@ -221,7 +221,7 @@ class SettingsPanel:
             "Уровень логирования",
             ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             index=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].index(
-                self.config.get('logging', {}).get('level', 'INFO')
+                self.config.logging.level
             ),
             key="log_level"
         )
@@ -229,12 +229,12 @@ class SettingsPanel:
         if st.button("Сохранить настройки"):
             try:
                 # Обновляем конфигурацию
-                self.config.set('ollama.base_url', base_url)
-                self.config.set('cache.enabled', cache_enabled)
+                from utils.config import ConfigSection
+                self.config.update_config(ConfigSection.OLLAMA, base_url=base_url)
+                self.config.update_config(ConfigSection.CACHE, enabled=cache_enabled)
                 if cache_enabled:
-                    self.config.set('cache.ttl', ttl)
-                    self.config.set('cache.max_size', max_size)
-                self.config.set('logging.level', log_level)
+                    self.config.update_config(ConfigSection.CACHE, ttl_seconds=ttl, max_size_mb=max_size)
+                self.config.update_config(ConfigSection.LOGGING, level=log_level)
                 
                 st.success("Настройки сохранены")
                 st.experimental_rerun()
