@@ -5,6 +5,13 @@ from datetime import datetime
 import pandas as pd
 from typing import Dict, Any, List, Optional
 from utils.exceptions import ValidationError
+from agents import (
+    PlannerAgent,
+    ExecutorAgent,
+    CriticAgent,
+    PraiseAgent,
+    ArbiterAgent
+)
 
 class AgentChain:
     """Компонент для отображения цепочки работы агентов"""
@@ -256,11 +263,26 @@ class AgentInteractionPanel:
     def __init__(self, systems):
         self.systems = systems
         self.agents = {
-            "planner": PlannerAgent(systems['ollama_client']),
-            "executor": ExecutorAgent(systems['ollama_client']),
-            "critic": CriticAgent(systems['ollama_client']),
-            "praise": PraiseAgent(systems['ollama_client']),
-            "arbiter": ArbiterAgent(systems['ollama_client'])
+            "planner": PlannerAgent(
+                systems['ollama_client'],
+                model=systems['config'].ollama.models.get("planner")
+            ),
+            "executor": ExecutorAgent(
+                systems['ollama_client'],
+                model=systems['config'].ollama.models.get("executor")
+            ),
+            "critic": CriticAgent(
+                systems['ollama_client'],
+                model=systems['config'].ollama.models.get("critic")
+            ),
+            "praise": PraiseAgent(
+                systems['ollama_client'],
+                model=systems['config'].ollama.models.get("praise")
+            ),
+            "arbiter": ArbiterAgent(
+                systems['ollama_client'],
+                model=systems['config'].ollama.models.get("arbiter")
+            )
         }
         
     def render(self):
