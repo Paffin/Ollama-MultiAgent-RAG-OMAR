@@ -322,7 +322,7 @@ class AgentInteractionPanel:
                 # Критика
                 with st.spinner("Анализ результата..."):
                     critique = asyncio.run(self.agents["critic"].process({
-                        "result": result.get('execution_result', '')
+                        "execution_result": result.get('execution_result', '')
                     }))
                     st.write("### Критический анализ")
                     st.write(critique.get('critique', ''))
@@ -330,7 +330,8 @@ class AgentInteractionPanel:
                 # Похвала
                 with st.spinner("Оценка качества..."):
                     praise = asyncio.run(self.agents["praise"].process({
-                        "result": result.get('execution_result', '')
+                        "execution_result": result.get('execution_result', ''),
+                        "critique": critique.get('critique', '')
                     }))
                     st.write("### Положительные аспекты")
                     st.write(praise.get('praise', ''))
@@ -338,9 +339,7 @@ class AgentInteractionPanel:
                 # Арбитраж
                 with st.spinner("Финальная оценка..."):
                     final_verdict = asyncio.run(self.agents["arbiter"].process({
-                        "query": query,
-                        "plan": plan_result.get('plan', ''),
-                        "result": result.get('execution_result', ''),
+                        "execution_result": result.get('execution_result', ''),
                         "critique": critique.get('critique', ''),
                         "praise": praise.get('praise', '')
                     }))
