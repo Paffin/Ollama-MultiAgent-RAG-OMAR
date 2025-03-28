@@ -188,7 +188,7 @@ def main():
             systems['data_validator'],
             systems['data_preprocessor']
         )
-        notification_panel = NotificationPanel(st.session_state.notifications)
+        notification_panel = NotificationPanel(systems['notifications'])
         settings_panel = SettingsPanel(systems['config'])
         
         # Отображение компонентов
