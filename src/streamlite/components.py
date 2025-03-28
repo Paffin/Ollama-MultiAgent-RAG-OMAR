@@ -101,7 +101,7 @@ class DataProcessingPanel:
                     raise ValidationError("Входные данные не могут быть пустыми")
                     
                 # Предварительная обработка
-                processed = self.preprocessor.preprocess(data)
+                processed = self.preprocessor.preprocess({"text": data})
                 st.write("### Предварительная обработка")
                 st.json(processed)
                 
@@ -173,7 +173,7 @@ class NotificationPanel:
                 if not notification.read:
                     if st.button("Отметить как прочитанное", key=f"read_{notification.id}"):
                         self.notifications.mark_as_read(notification.id)
-                        st.experimental_rerun()
+                        st.rerun()
 
 class SettingsPanel:
     """Компонент для управления настройками"""
@@ -242,6 +242,6 @@ class SettingsPanel:
                 self.config.update_config(ConfigSection.LOGGING, level=log_level)
                 
                 st.success("Настройки сохранены")
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"Ошибка сохранения настроек: {str(e)}") 

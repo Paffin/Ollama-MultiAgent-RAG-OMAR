@@ -66,7 +66,7 @@ class OllamaClient:
         Получение списка доступных моделей
         
         Returns:
-            Список моделей
+            Список имен моделей
         """
         try:
             url = f"{self.base_url}/api/tags"
@@ -78,7 +78,7 @@ class OllamaClient:
                         raise Exception(f"Ошибка API: {error_text}")
                         
                     data = await response.json()
-                    return data.get("models", [])
+                    return [model['name'] for model in data.get("models", [])]
                     
         except Exception as e:
             self.logger.error(f"Ошибка при получении списка моделей: {str(e)}")
