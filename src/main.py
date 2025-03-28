@@ -123,6 +123,18 @@ def init_systems():
         data_validator = DataValidator()
         data_preprocessor = DataPreprocessor()
         
+        # Добавляем правила валидации
+        def validate_text(text: str) -> bool:
+            if not isinstance(text, str):
+                return False
+            if len(text.strip()) == 0:
+                return False
+            if len(text) > 10000:
+                return False
+            return True
+            
+        data_validator.add_rule("text", validate_text)
+        
         # Инициализация Ollama клиента
         ollama_client = OllamaClient(
             base_url=config.ollama.base_url

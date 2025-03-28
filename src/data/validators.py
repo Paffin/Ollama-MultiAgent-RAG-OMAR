@@ -22,7 +22,7 @@ class DataValidator:
         except Exception as e:
             self.logger.error(f"Ошибка при добавлении правила валидации: {str(e)}")
             
-    def validate(self, data: Dict[str, Any]) -> bool:
+    def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Валидация данных
         
@@ -30,20 +30,37 @@ class DataValidator:
             data: Данные для проверки
             
         Returns:
-            True если данные валидны
+            Словарь с результатами валидации
         """
         try:
+            result = {
+                "status": "SUCCESS",
+                "errors": {}
+            }
+            
             for field, rule in self.validation_rules.items():
                 if field not in data:
-                    self.logger.error(f"Отсутствует обязательное поле: {field}")
-                    return False
+                    result["status"] = "ERROR"
+                    result["errors"][field] = {
+                        "message": f"Отсутствует обязательное поле: {field}"
+                    }
+                    continue
                     
                 if not rule(data[field]):
-                    self.logger.error(f"Ошибка валидации поля {field}")
-                    return False
+                    result["status"] = "ERROR"
+                    result["errors"][field] = {
+                        "message": f"Ошибка валидации поля {field}"
+                    }
                     
-            return True
+            return result
             
         except Exception as e:
             self.logger.error(f"Ошибка при валидации данных: {str(e)}")
-            return False 
+            return {
+                "status": "ERROR",
+                "errors": {
+                    "general": {
+                        "message": str(e)
+                    }
+                }
+            } 

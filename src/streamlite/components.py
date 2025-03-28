@@ -108,7 +108,12 @@ class DataProcessingPanel:
                 # Валидация
                 validation_result = self.validator.validate(processed)
                 st.write("### Результаты валидации")
-                st.json(validation_result)
+                if validation_result["status"] == "ERROR":
+                    st.error("Ошибки валидации:")
+                    for field, error in validation_result["errors"].items():
+                        st.error(f"{field}: {error['message']}")
+                else:
+                    st.success("Валидация успешна")
                 
                 # Обработка
                 result = self.processor.process(processed)
