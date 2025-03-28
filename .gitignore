@@ -35,8 +35,6 @@ ENV/
 # Project specific
 uploads/
 *.log
-metrics.json
-settings.json
 .env
 
 # Jupyter Notebook
