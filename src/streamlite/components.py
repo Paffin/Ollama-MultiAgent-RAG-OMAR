@@ -303,39 +303,41 @@ class AgentInteractionPanel:
                 return
                 
             try:
+                import asyncio
+                
                 # Планирование
                 with st.spinner("Планирование..."):
-                    plan = self.agents["planner"].process(query)
+                    plan = asyncio.run(self.agents["planner"].process({"query": query}))
                     st.write("### План действий")
                     st.write(plan)
                     
                 # Выполнение
                 with st.spinner("Выполнение..."):
-                    result = self.agents["executor"].process(plan)
+                    result = asyncio.run(self.agents["executor"].process({"plan": plan}))
                     st.write("### Результат выполнения")
                     st.write(result)
                     
                 # Критика
                 with st.spinner("Анализ результата..."):
-                    critique = self.agents["critic"].process(result)
+                    critique = asyncio.run(self.agents["critic"].process({"result": result}))
                     st.write("### Критический анализ")
                     st.write(critique)
                     
                 # Похвала
                 with st.spinner("Оценка качества..."):
-                    praise = self.agents["praise"].process(result)
+                    praise = asyncio.run(self.agents["praise"].process({"result": result}))
                     st.write("### Положительные аспекты")
                     st.write(praise)
                     
                 # Арбитраж
                 with st.spinner("Финальная оценка..."):
-                    final_verdict = self.agents["arbiter"].process({
+                    final_verdict = asyncio.run(self.agents["arbiter"].process({
                         "query": query,
                         "plan": plan,
                         "result": result,
                         "critique": critique,
                         "praise": praise
-                    })
+                    }))
                     st.write("### Финальное решение")
                     st.write(final_verdict)
                     
