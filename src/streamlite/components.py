@@ -307,69 +307,75 @@ class AgentInteractionPanel:
                 
                 # Планирование
                 with st.spinner("Планирование..."):
-                    plan = asyncio.run(self.agents["planner"].process({"query": query}))
+                    plan_result = asyncio.run(self.agents["planner"].process({"query": query}))
                     st.write("### План действий")
-                    st.write(plan)
+                    st.write(plan_result.get('plan', ''))
                     
                 # Выполнение
                 with st.spinner("Выполнение..."):
-                    result = asyncio.run(self.agents["executor"].process({"plan": plan}))
+                    result = asyncio.run(self.agents["executor"].process({
+                        "plan": plan_result.get('plan', '')
+                    }))
                     st.write("### Результат выполнения")
-                    st.write(result)
+                    st.write(result.get('execution_result', ''))
                     
                 # Критика
                 with st.spinner("Анализ результата..."):
-                    critique = asyncio.run(self.agents["critic"].process({"result": result}))
+                    critique = asyncio.run(self.agents["critic"].process({
+                        "result": result.get('execution_result', '')
+                    }))
                     st.write("### Критический анализ")
-                    st.write(critique)
+                    st.write(critique.get('critique', ''))
                     
                 # Похвала
                 with st.spinner("Оценка качества..."):
-                    praise = asyncio.run(self.agents["praise"].process({"result": result}))
+                    praise = asyncio.run(self.agents["praise"].process({
+                        "result": result.get('execution_result', '')
+                    }))
                     st.write("### Положительные аспекты")
-                    st.write(praise)
+                    st.write(praise.get('praise', ''))
                     
                 # Арбитраж
                 with st.spinner("Финальная оценка..."):
                     final_verdict = asyncio.run(self.agents["arbiter"].process({
                         "query": query,
-                        "plan": plan,
-                        "result": result,
-                        "critique": critique,
-                        "praise": praise
+                        "plan": plan_result.get('plan', ''),
+                        "result": result.get('execution_result', ''),
+                        "critique": critique.get('critique', ''),
+                        "praise": praise.get('praise', '')
                     }))
                     st.write("### Финальное решение")
-                    st.write(final_verdict)
+                    st.write(final_verdict.get('verdict', ''))
                     
                 # Добавляем в цепочку
                 st.session_state.agent_chain.append({
                     "agent": "planner",
                     "type": "plan",
-                    "content": plan,
+                    "content": plan_result.get('plan', ''),
                     "timestamp": datetime.now()
                 })
                 st.session_state.agent_chain.append({
                     "agent": "executor",
                     "type": "result",
-                    "content": result,
+                    "content": result.get('execution_result', ''),
                     "timestamp": datetime.now()
                 })
                 st.session_state.agent_chain.append({
                     "agent": "critic",
                     "type": "critique",
-                    "content": critique,
+                    "content": critique.get('critique', ''),
                     "timestamp": datetime.now()
                 })
                 st.session_state.agent_chain.append({
                     "agent": "praise",
                     "type": "praise",
-                    "content": praise,
+                    "content": praise.get('praise', ''),
                     "timestamp": datetime.now()
                 })
                 st.session_state.agent_chain.append({
                     "agent": "arbiter",
                     "type": "verdict",
-                    "content": final_verdict,
+                    "content": final_verdict.get('verdict', ''),
                     "timestamp": datetime.now()
                 })
                 
