@@ -264,24 +264,29 @@ class AgentInteractionPanel:
         self.systems = systems
         self.agents = {
             "planner": PlannerAgent(
-                systems['ollama_client'],
-                model=systems['config'].ollama.models.get("planner")
+                name="planner",
+                model_name=systems['config'].ollama.models.get("planner"),
+                client=systems['ollama_client']
             ),
             "executor": ExecutorAgent(
-                systems['ollama_client'],
-                model=systems['config'].ollama.models.get("executor")
+                name="executor",
+                model_name=systems['config'].ollama.models.get("executor"),
+                client=systems['ollama_client']
             ),
             "critic": CriticAgent(
-                systems['ollama_client'],
-                model=systems['config'].ollama.models.get("critic")
+                name="critic",
+                model_name=systems['config'].ollama.models.get("critic"),
+                client=systems['ollama_client']
             ),
             "praise": PraiseAgent(
-                systems['ollama_client'],
-                model=systems['config'].ollama.models.get("praise")
+                name="praise",
+                model_name=systems['config'].ollama.models.get("praise"),
+                client=systems['ollama_client']
             ),
             "arbiter": ArbiterAgent(
-                systems['ollama_client'],
-                model=systems['config'].ollama.models.get("arbiter")
+                name="arbiter",
+                model_name=systems['config'].ollama.models.get("arbiter"),
+                client=systems['ollama_client']
             )
         }
         
