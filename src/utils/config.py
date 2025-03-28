@@ -167,7 +167,7 @@ class AppConfig:
 @dataclass
 class ConfigManager:
     """Менеджер конфигурации"""
-    config_path: str = "config/settings.json"
+    config_path: str = str(Path(__file__).parent.parent.parent / "config" / "settings.json")
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     agents: AgentConfig = field(default_factory=AgentConfig)
     data: DataConfig = field(default_factory=DataConfig)
