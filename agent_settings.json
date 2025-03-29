@@ -1,0 +1,18 @@
+{
+    "models": {
+        "planner": "gemma3:4b",
+        "executor": "gemma3:4b",
+        "critic": "gemma3:4b",
+        "praise": "gemma3:4b",
+        "arbiter": "gemma3:4b"
+    },
+    "ollama": {
+        "temperature": 0.8,
+        "top_p": 0.9,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "num_ctx": 4096,
+        "num_predict": 4096,
+        "max_iterations": 2
+    }
+}
