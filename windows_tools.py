@@ -49,9 +49,16 @@ def duckduckgo_search(query: str, max_results: int = 5) -> str:
         Отформатированные результаты поиска
     """
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            return "Ошибка: пакет duckduckgo-search не установлен. Установите его через pip install duckduckgo-search"
+            
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
+            try:
+                results = list(ddgs.text(query, max_results=max_results, timeout=30))
+            except Exception as e:
+                return f"Ошибка при выполнении поиска: {e}"
             
         if not results:
             return "Результаты не найдены."
@@ -74,24 +81,34 @@ def _format_search_results(results: list) -> str:
 class PlaywrightBrowser:
     """Управление браузером через Playwright."""
     
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, timeout: int = 30000):
         """
         Инициализирует браузер.
         
         Args:
             headless: Режим без GUI
+            timeout: Таймаут в миллисекундах
         """
         self.headless = headless
+        self.timeout = timeout
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
         self._playwright = None
 
     def launch(self) -> None:
         """Запускает браузер."""
-        self._playwright = sync_playwright().start()
-        self.browser = self._playwright.chromium.launch(headless=self.headless)
-        context = self.browser.new_context()
-        self.page = context.new_page()
+        try:
+            self._playwright = sync_playwright().start()
+            self.browser = self._playwright.chromium.launch(headless=self.headless)
+            context = self.browser.new_context(
+                viewport={'width': 1280, 'height': 800},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            self.page = context.new_page()
+            self.page.set_default_timeout(self.timeout)
+        except Exception as e:
+            self.close()
+            raise RuntimeError(f"Ошибка при запуске браузера: {e}")
 
     def goto(self, url: str) -> None:
         """
@@ -99,10 +116,15 @@ class PlaywrightBrowser:
         
         Args:
             url: Адрес страницы
+            
+        Raises:
+            RuntimeError: Если браузер не запущен или произошла ошибка
         """
         self._check_browser()
-        self.page.goto(url)
-        time.sleep(2)  # ожидание загрузки
+        try:
+            self.page.goto(url, wait_until='networkidle', timeout=self.timeout)
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при переходе по URL {url}: {e}")
 
     def screenshot(self, path: str = "screenshot.png") -> str:
         """
@@ -113,10 +135,16 @@ class PlaywrightBrowser:
             
         Returns:
             Путь к сохраненному скриншоту
+            
+        Raises:
+            RuntimeError: Если браузер не запущен или произошла ошибка
         """
         self._check_browser()
-        self.page.screenshot(path=path)
-        return path
+        try:
+            self.page.screenshot(path=path, timeout=self.timeout)
+            return path
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при создании скриншота: {e}")
 
     def click(self, selector: str) -> None:
         """
@@ -124,10 +152,16 @@ class PlaywrightBrowser:
         
         Args:
             selector: CSS-селектор
+            
+        Raises:
+            RuntimeError: Если браузер не запущен или произошла ошибка
         """
         self._check_browser()
-        self.page.click(selector)
-        time.sleep(1)
+        try:
+            self.page.click(selector, timeout=self.timeout)
+            self.page.wait_for_load_state('networkidle', timeout=self.timeout)
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при клике по элементу {selector}: {e}")
 
     def type_text(self, selector: str, text: str) -> None:
         """
@@ -136,10 +170,15 @@ class PlaywrightBrowser:
         Args:
             selector: CSS-селектор
             text: Текст для ввода
+            
+        Raises:
+            RuntimeError: Если браузер не запущен или произошла ошибка
         """
         self._check_browser()
-        self.page.fill(selector, text)
-        time.sleep(1)
+        try:
+            self.page.fill(selector, text, timeout=self.timeout)
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при вводе текста в элемент {selector}: {e}")
 
     def get_page_title(self) -> str:
         """
@@ -147,9 +186,15 @@ class PlaywrightBrowser:
         
         Returns:
             Заголовок страницы
+            
+        Raises:
+            RuntimeError: Если браузер не запущен или произошла ошибка
         """
         self._check_browser()
-        return self.page.title()
+        try:
+            return self.page.title()
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при получении заголовка страницы: {e}")
 
     def check_ssl(self) -> bool:
         """
@@ -157,23 +202,38 @@ class PlaywrightBrowser:
         
         Returns:
             True если используется HTTPS
+            
+        Raises:
+            RuntimeError: Если браузер не запущен или произошла ошибка
         """
         self._check_browser()
-        return self.page.evaluate("() => window.location.protocol") == "https:"
+        try:
+            return self.page.evaluate("() => window.location.protocol") == "https:"
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при проверке SSL: {e}")
 
     def close(self) -> None:
         """Закрывает браузер."""
-        if self.browser:
-            self.browser.close()
-        if self._playwright:
-            self._playwright.stop()
-        self.browser = None
-        self.page = None
-        self._playwright = None
+        try:
+            if self.browser:
+                self.browser.close()
+            if self._playwright:
+                self._playwright.stop()
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии браузера: {e}")
+        finally:
+            self.browser = None
+            self.page = None
+            self._playwright = None
 
     def _check_browser(self) -> None:
-        """Проверяет, запущен ли браузер."""
-        if not self.page:
+        """
+        Проверяет, запущен ли браузер.
+        
+        Raises:
+            RuntimeError: Если браузер не запущен
+        """
+        if not self.page or not self.browser:
             raise RuntimeError("Браузер не запущен. Вызовите launch()")
 
 def llava_analyze_screenshot_via_ollama_llava(

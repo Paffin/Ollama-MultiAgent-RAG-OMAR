@@ -4,11 +4,30 @@ import sys
 import asyncio
 import time
 import re
+import logging
 from typing import Dict, Any
+from datetime import datetime
+import pandas as pd
+import plotly.graph_objects as go
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Настройка для Windows
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+# Настройка event loop для macOS
+if sys.platform == "darwin":
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 import nest_asyncio
 nest_asyncio.apply()
@@ -47,53 +66,267 @@ st.set_page_config(
 # Стили CSS
 CSS_STYLES = """
     <style>
+    /* Основные цвета */
+    :root {
+        --primary-bg: #1a1a1a;
+        --secondary-bg: #2d2d2d;
+        --accent-color: #00b4d8;
+        --text-primary: #e0e0e0;
+        --text-secondary: #b0b0b0;
+        --border-color: #404040;
+        --success-color: #2ecc71;
+        --warning-color: #f1c40f;
+        --error-color: #e74c3c;
+        --planning-color: #3498db;
+        --executing-color: #e67e22;
+        --criticizing-color: #9b59b6;
+        --praising-color: #27ae60;
+        --arbitrating-color: #34495e;
+    }
+
+    /* Основной фон */
     .main {
+        background-color: var(--primary-bg);
+        color: var(--text-primary);
         padding: 2rem;
     }
+
+    /* Кнопки */
     .stButton>button {
         width: 100%;
         margin-top: 1rem;
-        background-color: #4CAF50;
-        color: white;
+        background-color: var(--accent-color);
+        color: var(--text-primary);
         border: none;
         padding: 0.5rem 1rem;
         border-radius: 4px;
         cursor: pointer;
+        transition: all 0.3s ease;
     }
+
     .stButton>button:hover {
-        background-color: #45a049;
+        background-color: #0096c7;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
+
+    /* Карточки агентов */
     .agent-card {
-        background-color: #f8f9fa;
+        background-color: var(--secondary-bg);
         border-radius: 8px;
-        padding: 1rem;
+        padding: 1.5rem;
         margin-bottom: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--border-color);
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
     }
+
+    .agent-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Статус-бейджи */
     .status-badge {
-        padding: 0.25rem 0.5rem;
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        padding: 0.4rem 0.8rem;
         border-radius: 4px;
-        font-size: 0.8rem;
+        font-size: 0.7rem;
         font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        transition: all 0.3s ease;
     }
-    .status-active {
-        background-color: #e3f2fd;
-        color: #1976d2;
+
+    .status-active.planning {
+        background-color: rgba(52, 152, 219, 0.2);
+        color: var(--planning-color);
+        border: 1px solid var(--planning-color);
     }
+
+    .status-active.executing {
+        background-color: rgba(230, 126, 34, 0.2);
+        color: var(--executing-color);
+        border: 1px solid var(--executing-color);
+    }
+
+    .status-active.criticizing {
+        background-color: rgba(155, 89, 182, 0.2);
+        color: var(--criticizing-color);
+        border: 1px solid var(--criticizing-color);
+    }
+
+    .status-active.praising {
+        background-color: rgba(39, 174, 96, 0.2);
+        color: var(--praising-color);
+        border: 1px solid var(--praising-color);
+    }
+
+    .status-active.arbitrating {
+        background-color: rgba(52, 73, 94, 0.2);
+        color: var(--arbitrating-color);
+        border: 1px solid var(--arbitrating-color);
+    }
+
     .status-completed {
-        background-color: #e8f5e9;
-        color: #2e7d32;
+        background-color: rgba(46, 204, 113, 0.2);
+        color: var(--success-color);
+        border: 1px solid var(--success-color);
     }
+
     .status-error {
-        background-color: #ffebee;
-        color: #c62828;
+        background-color: rgba(231, 76, 60, 0.2);
+        color: var(--error-color);
+        border: 1px solid var(--error-color);
     }
+
+    /* Цепочка выполнения */
     .chain-trace {
-        background-color: #fff;
+        background-color: var(--secondary-bg);
         border-radius: 8px;
         padding: 1rem;
         margin-top: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--border-color);
+    }
+
+    /* Заголовки */
+    h1, h2, h3, h4, h5, h6 {
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+    }
+
+    /* Текстовые поля */
+    .stTextArea>div>div>textarea {
+        background-color: var(--secondary-bg);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+    }
+
+    /* Селекты и слайдеры */
+    .stSelectbox>div>div>select,
+    .stSlider>div>div>div {
+        background-color: var(--secondary-bg);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+    }
+
+    /* Сайдбар */
+    .css-1d391kg {
+        background-color: var(--secondary-bg);
+    }
+
+    /* Экспандеры */
+    .streamlit-expanderHeader {
+        background-color: var(--secondary-bg);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    /* Итоговый ответ */
+    .final-answer {
+        background-color: var(--secondary-bg);
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--border-color);
+    }
+
+    /* Предупреждения и ошибки */
+    .stAlert {
+        background-color: var(--secondary-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    /* Анимации */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .agent-card, .chain-trace, .final-answer {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    /* Прогресс-бар */
+    .progress-bar {
+        width: 100%;
+        height: 6px;
+        background-color: var(--border-color);
+        border-radius: 3px;
+        margin: 1rem 0;
+        overflow: hidden;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        background-color: var(--accent-color);
+        transition: width 0.3s ease;
+        animation: progressPulse 2s infinite;
+    }
+    
+    /* Метрики */
+    .metrics {
+        display: flex;
+        justify-content: space-between;
+        margin: 0.8rem 0;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+    
+    .metrics span {
+        background-color: rgba(0, 0, 0, 0.2);
+        padding: 0.3rem 0.6rem;
+        border-radius: 3px;
+        border: 1px solid var(--border-color);
+    }
+    
+    /* Время обработки */
+    .processing-time {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin: 0.5rem 0;
+        padding: 0.3rem 0;
+        border-top: 1px solid var(--border-color);
+    }
+    
+    /* Сообщение об ошибке */
+    .error-message {
+        color: var(--error-color);
+        font-size: 0.9rem;
+        margin: 0.5rem 0;
+        padding: 0.5rem;
+        background-color: rgba(231, 76, 60, 0.1);
+        border-radius: 4px;
+        border: 1px solid var(--error-color);
+    }
+
+    /* Заголовки агентов */
+    .agent-card h4 {
+        margin: 0;
+        padding-right: 4rem;
+        font-size: 1.1rem;
+        color: var(--accent-color);
+        font-weight: bold;
+    }
+    
+    /* Текущая задача */
+    .agent-card p {
+        margin: 0.5rem 0;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        color: var(--text-primary);
     }
     </style>
 """
@@ -101,54 +334,73 @@ CSS_STYLES = """
 # Статусы агентов
 AGENT_STATUSES = {
     "idle": "status-active",
-    "planning": "status-active",
-    "executing": "status-active",
-    "criticizing": "status-active",
-    "praising": "status-active",
-    "arbitrating": "status-active",
+    "planning": "status-active planning",
+    "executing": "status-active executing",
+    "criticizing": "status-active criticizing",
+    "praising": "status-active praising",
+    "arbitrating": "status-active arbitrating",
     "completed": "status-completed",
     "error": "status-error"
 }
 
 def init_session_state() -> None:
     """Инициализирует состояние сессии."""
-    if "ollama_client" not in st.session_state:
-        st.session_state.ollama_client = OllamaClient("http://localhost:11434")
-    if "vector_store" not in st.session_state:
-        st.session_state.vector_store = SimpleVectorStore()
-    if "planner_agent" not in st.session_state:
-        st.session_state.planner_agent = None
-    if "executor_agent" not in st.session_state:
-        st.session_state.executor_agent = None
-    if "critic_agent" not in st.session_state:
-        st.session_state.critic_agent = None
-    if "praise_agent" not in st.session_state:
-        st.session_state.praise_agent = None
-    if "arbiter_agent" not in st.session_state:
-        st.session_state.arbiter_agent = None
-    if "chain_trace" not in st.session_state:
-        st.session_state.chain_trace = []
-    if "final_answer" not in st.session_state:
-        st.session_state.final_answer = ""
-    if "system_prompts" not in st.session_state:
-        st.session_state.system_prompts = {
-            "planner": PLANNER_PROMPT,
-            "executor": EXECUTOR_PROMPT,
-            "critic": CRITIC_PROMPT,
-            "praise": PRAISE_PROMPT,
-            "arbiter": ARBITER_PROMPT
-        }
-    if "settings" not in st.session_state:
-        st.session_state.settings = Settings()
+    try:
+        if "ollama_client" not in st.session_state:
+            st.session_state.ollama_client = OllamaClient("http://localhost:11434")
+            logger.info("Инициализирован клиент Ollama")
+            
+        if "vector_store" not in st.session_state:
+            st.session_state.vector_store = SimpleVectorStore()
+            logger.info("Инициализировано векторное хранилище")
+            
+        if "planner_agent" not in st.session_state:
+            st.session_state.planner_agent = None
+        if "executor_agent" not in st.session_state:
+            st.session_state.executor_agent = None
+        if "critic_agent" not in st.session_state:
+            st.session_state.critic_agent = None
+        if "praise_agent" not in st.session_state:
+            st.session_state.praise_agent = None
+        if "arbiter_agent" not in st.session_state:
+            st.session_state.arbiter_agent = None
+            
+        if "chain_trace" not in st.session_state:
+            st.session_state.chain_trace = []
+        if "final_answer" not in st.session_state:
+            st.session_state.final_answer = ""
+            
+        if "system_prompts" not in st.session_state:
+            st.session_state.system_prompts = {
+                "planner": PLANNER_PROMPT,
+                "executor": EXECUTOR_PROMPT,
+                "critic": CRITIC_PROMPT,
+                "praise": PRAISE_PROMPT,
+                "arbiter": ARBITER_PROMPT
+            }
+            
+        if "settings" not in st.session_state:
+            st.session_state.settings = Settings()
+            
+        logger.info("Состояние сессии успешно инициализировано")
+    except Exception as e:
+        logger.error(f"Ошибка при инициализации состояния сессии: {e}")
+        st.error("Произошла ошибка при инициализации приложения")
 
 def log_chain(agent_name: str, step_type: str, content: str) -> None:
     """Логирует шаг в цепочке выполнения."""
-    st.session_state.chain_trace.append({
-        "agent": agent_name,
-        "type": step_type,
-        "content": content,
-        "timestamp": time.strftime("%H:%M:%S")
-    })
+    try:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = {
+            "agent": agent_name,
+            "type": step_type,
+            "content": content,
+            "timestamp": timestamp
+        }
+        st.session_state.chain_trace.append(log_entry)
+        logger.info(f"Шаг {agent_name} [{step_type}] зарегистрирован")
+    except Exception as e:
+        logger.error(f"Ошибка при логировании шага: {e}")
 
 def display_chain_trace() -> None:
     """Отображает историю выполнения."""
@@ -158,18 +410,79 @@ def display_chain_trace() -> None:
             st.markdown(record["content"])
 
 def display_agent_status(agent: Any) -> None:
-    """Отображает статус агента."""
-    if agent and agent.state:
-        status_class = AGENT_STATUSES.get(agent.state.status.value, "status-active")
+    """Отображает статус агента с прогресс-баром и метриками."""
+    if not agent or not agent.state:
+        return
+
+    try:
+        status_info = agent.state.get_status_info()
+        metrics = agent.state.get_metrics()
+        progress_history = agent.state.get_progress_history()
         
-        st.markdown(f"""
+        status_class = AGENT_STATUSES.get(status_info["status"], "status-active")
+        
+        # Форматируем время выполнения
+        processing_time = "N/A"
+        if status_info.get("processing_time"):
+            processing_time = f"{status_info['processing_time']:.2f}с"
+        
+        # Создаем прогресс-бар
+        progress = max(0.0, min(1.0, status_info.get("progress", 0.0)))
+        progress_bar = f"""
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: {progress*100}%"></div>
+            </div>
+        """
+        
+        # Форматируем метрики
+        metrics_text = f"""
+            <div class="metrics">
+                <span>Токены: {metrics.get('tokens', 0)}</span>
+                <span>API: {metrics.get('api_calls', 0)}</span>
+                <span>Шаги: {metrics.get('steps_completed', 0)}/{metrics.get('total_steps', 0)}</span>
+            </div>
+        """
+        
+        # Форматируем карточку агента
+        agent_card = f"""
             <div class="agent-card">
                 <h4>{agent.name}</h4>
-                <span class="status-badge {status_class}">{agent.state.status.value}</span>
-                <p>{agent.state.current_task}</p>
-                {f'<p style="color: #c62828;">Ошибка: {agent.state.error}</p>' if agent.state.error else ''}
+                <span class="status-badge {status_class}">{status_info.get('status', 'idle')}</span>
+                <p>{status_info.get('current_task', '')}</p>
+                {progress_bar}
+                {metrics_text}
+                <p class="processing-time">Время: {processing_time}</p>
+                {f'<p class="error-message">Ошибка: {status_info["error"]}</p>' if status_info.get("error") else ''}
             </div>
-        """, unsafe_allow_html=True)
+        """
+        
+        st.markdown(agent_card, unsafe_allow_html=True)
+        
+        # Отображаем график прогресса только если есть история и агент активен
+        if progress_history and status_info["status"] not in ["completed", "error", "idle"]:
+            df = pd.DataFrame(progress_history)
+            if not df.empty:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df['time'],
+                    y=df['progress'],
+                    mode='lines',
+                    name='Прогресс',
+                    line=dict(color='#00b4d8')
+                ))
+                fig.update_layout(
+                    height=100,
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    showlegend=False,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        logger.error(f"Ошибка при отображении статуса агента {agent.name}: {e}")
+        st.error(f"Ошибка отображения статуса агента {agent.name}")
 
 def detect_language(user_query: str) -> str:
     """Определяет язык запроса."""
@@ -190,27 +503,27 @@ def display_agent_settings() -> None:
 
             settings = st.session_state.settings
             model_planner = st.selectbox(
-                "Planner Model",
+                "Модель для Planner",
                 models,
                 index=models.index(settings.get_model("planner")) if settings.get_model("planner") in models else 0
             )
             model_executor = st.selectbox(
-                "Executor Model",
+                "Модель для Executor",
                 models,
                 index=models.index(settings.get_model("executor")) if settings.get_model("executor") in models else 0
             )
             model_critic = st.selectbox(
-                "Critic Model",
+                "Модель для Critic",
                 models,
                 index=models.index(settings.get_model("critic")) if settings.get_model("critic") in models else 0
             )
             model_praise = st.selectbox(
-                "Praise Model",
+                "Модель для Praise",
                 models,
                 index=models.index(settings.get_model("praise")) if settings.get_model("praise") in models else 0
             )
             model_arbiter = st.selectbox(
-                "Arbiter Model",
+                "Модель для Arbiter",
                 models,
                 index=models.index(settings.get_model("arbiter")) if settings.get_model("arbiter") in models else 0
             )
@@ -383,48 +696,54 @@ def display_ollama_settings() -> None:
 
 def process_user_query(user_query: str) -> None:
     """Обрабатывает запрос пользователя."""
-    if not user_query:
-        st.warning("⚠️ Пожалуйста, введите запрос")
-        return
+    try:
+        if not user_query:
+            st.warning("⚠️ Пожалуйста, введите запрос")
+            return
 
-    # Получаем агентов
-    planner = st.session_state.planner_agent
-    executor = st.session_state.executor_agent
-    critic = st.session_state.critic_agent
-    praise = st.session_state.praise_agent
-    arbiter = st.session_state.arbiter_agent
-    
-    if not all([planner, executor, critic, praise, arbiter]):
-        st.error("❌ Агенты не инициализированы. Нажмите 'Инициализировать агентов'.")
-        return
+        # Получаем агентов
+        planner = st.session_state.planner_agent
+        executor = st.session_state.executor_agent
+        critic = st.session_state.critic_agent
+        praise = st.session_state.praise_agent
+        arbiter = st.session_state.arbiter_agent
+        
+        if not all([planner, executor, critic, praise, arbiter]):
+            st.error("❌ Агенты не инициализированы. Нажмите 'Инициализировать агентов'.")
+            return
 
-    # Очищаем историю
-    st.session_state.chain_trace = []
-    st.session_state.final_answer = ""
+        # Очищаем историю
+        st.session_state.chain_trace = []
+        st.session_state.final_answer = ""
 
-    # Получаем параметры Ollama
-    ollama_opts = st.session_state.settings.get_ollama_settings()
+        # Получаем параметры Ollama
+        ollama_opts = st.session_state.settings.get_ollama_settings()
 
-    # Отображаем статус агентов
-    st.markdown("### 📊 Статус агентов")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        display_agent_status(planner)
-    with col2:
-        display_agent_status(executor)
-    with col3:
-        display_agent_status(critic)
-    with col4:
-        display_agent_status(praise)
-    with col5:
-        display_agent_status(arbiter)
+        # Отображаем статус агентов
+        st.markdown("### 📊 Статус агентов")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            display_agent_status(planner)
+        with col2:
+            display_agent_status(executor)
+        with col3:
+            display_agent_status(critic)
+        with col4:
+            display_agent_status(praise)
+        with col5:
+            display_agent_status(arbiter)
 
-    # Выполняем итерации
-    execute_iterations(
-        user_query,
-        planner, executor, critic, praise, arbiter,
-        ollama_opts
-    )
+        # Выполняем итерации
+        execute_iterations(
+            user_query,
+            planner, executor, critic, praise, arbiter,
+            ollama_opts
+        )
+        
+        logger.info("Запрос пользователя успешно обработан")
+    except Exception as e:
+        logger.error(f"Ошибка при обработке запроса пользователя: {e}")
+        st.error("Произошла ошибка при обработке запроса")
 
 def execute_iterations(
     user_query: str,
@@ -436,38 +755,46 @@ def execute_iterations(
     ollama_opts: Dict[str, Any]
 ) -> None:
     """Выполняет итерации обработки запроса."""
-    # Шаг 1: PlannerAgent
-    with st.expander("📋 Шаг 1: PlannerAgent", expanded=True):
-        plan_text = execute_planner(user_query, planner, ollama_opts)
-    
-    current_instruction = plan_text
-
-    # Итерации
-    max_iterations = st.session_state.settings.get_max_iterations()
-    for iteration in range(1, max_iterations + 1):
-        st.markdown(f"## 🔄 Итерация {iteration}")
+    try:
+        # Шаг 1: PlannerAgent
+        with st.expander("📋 Шаг 1: PlannerAgent", expanded=True):
+            plan_text = execute_planner(user_query, planner, ollama_opts)
         
-        # ExecutorAgent
-        with st.expander("⚡ ExecutorAgent", expanded=True):
-            exec_text = execute_executor(current_instruction, executor, ollama_opts)
+        current_instruction = plan_text
 
-        # CriticAgent
-        with st.expander("🔍 CriticAgent", expanded=False):
-            cr_text = execute_critic(exec_text, critic, ollama_opts)
+        # Итерации
+        max_iterations = st.session_state.settings.get_max_iterations()
+        for iteration in range(1, max_iterations + 1):
+            logger.info(f"Начало итерации {iteration}")
+            st.markdown(f"## 🔄 Итерация {iteration}")
+            
+            # ExecutorAgent
+            with st.expander("⚡ ExecutorAgent", expanded=True):
+                exec_text = execute_executor(current_instruction, executor, ollama_opts)
 
-        # PraiseAgent
-        with st.expander("🌟 PraiseAgent", expanded=False):
-            pr_text = execute_praise(exec_text, praise, ollama_opts)
+            # CriticAgent
+            with st.expander("🔍 CriticAgent", expanded=False):
+                cr_text = execute_critic(exec_text, critic, ollama_opts)
 
-        # ArbiterAgent
-        if iteration < max_iterations:
-            with st.expander("⚖️ ArbiterAgent", expanded=False):
-                arb_text = execute_arbiter(exec_text, cr_text, pr_text, arbiter, ollama_opts)
-                current_instruction = arb_text
-        else:
-            st.session_state.final_answer = exec_text
+            # PraiseAgent
+            with st.expander("🌟 PraiseAgent", expanded=False):
+                pr_text = execute_praise(exec_text, praise, ollama_opts)
 
-    st.success("✅ Итерации завершены")
+            # ArbiterAgent
+            if iteration < max_iterations:
+                with st.expander("⚖️ ArbiterAgent", expanded=False):
+                    arb_text = execute_arbiter(exec_text, cr_text, pr_text, arbiter, ollama_opts)
+                    current_instruction = arb_text
+            else:
+                st.session_state.final_answer = exec_text
+                
+            logger.info(f"Итерация {iteration} завершена")
+
+        st.success("✅ Итерации завершены")
+        logger.info("Все итерации успешно завершены")
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении итераций: {e}")
+        st.error("Произошла ошибка при выполнении итераций")
 
 def execute_planner(user_query: str, planner: PlannerAgent, ollama_opts: Dict[str, Any]) -> str:
     """Выполняет планирование."""
@@ -573,7 +900,7 @@ def display_final_answer() -> None:
         st.markdown("## 🎯 Итоговый ответ")
         st.markdown(
             f"""
-            <div style="background-color: #e3f2fd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+            <div class="final-answer">
                 {st.session_state.final_answer}
             </div>
             """,
@@ -588,7 +915,7 @@ def main() -> None:
     
     st.title("🤖 MultiAgent System")
     st.markdown("""
-        <div style="background-color: #e3f2fd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+        <div class="agent-card">
             <h4 style="margin: 0;">Система мультиагентов с поддержкой браузера и DuckDuckGo</h4>
             <p style="margin: 0.5rem 0 0;">Используйте эту систему для выполнения сложных задач с помощью различных специализированных агентов.</p>
         </div>
@@ -600,7 +927,12 @@ def main() -> None:
     display_ollama_settings()
 
     st.markdown("### 💬 Введите задачу/запрос")
-    user_query = st.text_area("", height=100, placeholder="Опишите вашу задачу здесь...")
+    user_query = st.text_area(
+        "Запрос",
+        height=100,
+        placeholder="Опишите вашу задачу здесь...",
+        label_visibility="collapsed"
+    )
 
     if st.button("🚀 Запустить"):
         process_user_query(user_query)

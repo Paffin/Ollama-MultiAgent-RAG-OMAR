@@ -1,10 +1,192 @@
-streamlit
-requests
-sentence-transformers
-faiss-cpu
-duckduckgo-search
-playwright
-pillow
-nest_asyncio
-
+streamlit==1.32.0
+torch==2.2.0
+sentence-transformers==2.5.1
+faiss-cpu==1.8.0
+playwright==1.42.0
+nest-asyncio==1.6.0
+watchdog==6.0.0
+urllib3==1.26.6
+duckduckgo-search==4.1.1
+plotly
 # Если на Windows есть проблемы с faiss-cpu, можно попробовать другую сборку (conda etc.)
+
+def retry_with_backoff(func, max_attempts=3, initial_delay=1.0, max_delay=10.0):
+    """Декоратор для повторных попыток с экспоненциальной задержкой."""
+    def wrapper(*args, **kwargs):
+        delay = initial_delay
+        last_exception = None
+        
+        for attempt in range(max_attempts):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                if attempt == max_attempts - 1:
+                    raise
+                    
+                logger.warning(f"Попытка {attempt + 1} не удалась: {e}")
+                time.sleep(min(delay, max_delay))
+                delay *= 2
+                
+        raise last_exception
+    return wrapper
+
+class CommandSecurity:
+    """Класс для проверки безопасности команд."""
+    
+    DANGEROUS_COMMANDS = {
+        "rm": "Удаление файлов",
+        "del": "Удаление файлов",
+        "format": "Форматирование диска",
+        "mkfs": "Создание файловой системы",
+        "dd": "Побитовое копирование",
+        "chmod": "Изменение прав доступа",
+        "chown": "Изменение владельца",
+        "sudo": "Повышение привилегий",
+        "su": "Смена пользователя"
+    }
+    
+    DANGEROUS_PATTERNS = [
+        r">.*", # Перенаправление вывода
+        r">>.*", # Добавление к файлу
+        r"\|.*", # Пайпы
+        r"&.*", # Фоновые процессы
+        r";.*", # Последовательное выполнение
+        r"&&.*" # Условное выполнение
+    ]
+    
+    @classmethod
+    def check_command(cls, command: str) -> Tuple[bool, str]:
+        """Проверяет безопасность команды."""
+        command = command.lower().strip()
+        
+        # Проверяем опасные команды
+        for dangerous_cmd, reason in cls.DANGEROUS_COMMANDS.items():
+            if dangerous_cmd in command.split():
+                return False, f"Опасная команда: {dangerous_cmd} ({reason})"
+        
+        # Проверяем опасные паттерны
+        for pattern in cls.DANGEROUS_PATTERNS:
+            if re.search(pattern, command):
+                return False, f"Опасный паттерн: {pattern}"
+        
+        return True, "Команда безопасна"
+
+class LanguageDetector:
+    """Класс для определения языка и выбора промптов."""
+    
+    @staticmethod
+    def detect_language(text: str) -> str:
+        """Определяет язык текста."""
+        # Подсчет символов разных алфавитов
+        cyrillic = len(re.findall(r'[а-яА-ЯёЁ]', text))
+        latin = len(re.findall(r'[a-zA-Z]', text))
+        
+        # Определяем преобладающий алфавит
+        if cyrillic > latin:
+            return "ru"
+        return "en"
+    
+    @staticmethod
+    def get_prompt_for_language(base_prompt: str, language: str) -> str:
+        """Возвращает промпт для указанного языка."""
+        if language == "ru":
+            return base_prompt  # Базовый промпт уже на русском
+        
+        # Здесь можно добавить перевод на английский
+        # или загрузку английской версии промпта
+        return base_prompt
+
+class RAGError(Exception):
+    """Базовый класс для ошибок RAG."""
+    pass
+
+class DocumentSizeError(RAGError):
+    """Ошибка превышения размера документа."""
+    pass
+
+class DocumentLimitError(RAGError):
+    """Ошибка превышения лимита документов."""
+    pass
+
+class EmbeddingError(RAGError):
+    """Ошибка создания эмбеддингов."""
+    pass
+
+# Добавить в SimpleVectorStore:
+def add_documents(self, docs: List[str], metadata: List[Dict[str, Any]] = None) -> None:
+    """Добавляет документы с улучшенной обработкой ошибок."""
+    if not docs:
+        return
+        
+    try:
+        # Проверка размера
+        for doc in docs:
+            size = len(doc.encode('utf-8'))
+            if size > self.max_document_size:
+                raise DocumentSizeError(
+                    f"Документ превышает лимит {self.max_document_size} байт"
+                )
+        
+        # Проверка количества
+        if len(self.texts) + len(docs) > self.max_documents:
+            raise DocumentLimitError(
+                f"Превышен лимит документов ({self.max_documents})"
+            )
+        
+        # Создание эмбеддингов
+        try:
+            embeddings = self._create_embeddings(docs)
+        except Exception as e:
+            raise EmbeddingError(f"Ошибка создания эмбеддингов: {e}")
+        
+        # Добавление в индекс
+        self._add_to_index(embeddings, docs, metadata)
+        
+        self.last_update = datetime.now()
+        logger.info(f"Добавлено {len(docs)} документов")
+        
+    except RAGError as e:
+        logger.error(f"Ошибка RAG: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка: {e}")
+        raise RAGError(f"Ошибка при добавлении документов: {e}")
+
+class PerformanceMonitor:
+    """Класс для мониторинга производительности."""
+    
+    def __init__(self):
+        self.metrics = {
+            "embedding_time": [],
+            "search_time": [],
+            "index_size": [],
+            "memory_usage": []
+        }
+    
+    def record_metric(self, metric_name: str, value: float):
+        """Записывает метрику."""
+        if metric_name in self.metrics:
+            self.metrics[metric_name].append({
+                "timestamp": datetime.now(),
+                "value": value
+            })
+    
+    def get_average(self, metric_name: str) -> float:
+        """Возвращает среднее значение метрики."""
+        if not self.metrics.get(metric_name):
+            return 0.0
+        values = [m["value"] for m in self.metrics[metric_name]]
+        return sum(values) / len(values)
+    
+    def get_report(self) -> Dict[str, Any]:
+        """Генерирует отчет по всем метрикам."""
+        return {
+            name: {
+                "average": self.get_average(name),
+                "min": min(m["value"] for m in metrics) if metrics else 0,
+                "max": max(m["value"] for m in metrics) if metrics else 0,
+                "count": len(metrics)
+            }
+            for name, metrics in self.metrics.items()
+        }
