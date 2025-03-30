@@ -6,6 +6,7 @@ import time
 import threading
 import logging
 import os
+import urllib.parse
 from ollama_client import OllamaClient
 from rag_db import SimpleVectorStore
 from windows_tools import (
@@ -951,45 +952,37 @@ class ExecutorAgent(BaseAgent):
     def _try_browser_search(self, query: str) -> str:
         """Выполняет поиск через браузер."""
         try:
-            if not self._browser:
-                self._browser = PlaywrightBrowser(headless=True, timeout=30000)
-                self._browser.launch()
+            # Инициализация браузера с повторными попытками
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if not self._browser:
+                        self._browser = PlaywrightBrowser(headless=True, timeout=30000)
+                        self._browser.launch()
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Не удалось запустить браузер после {max_retries} попыток: {e}")
+                    time.sleep(2 ** attempt)
             
             # Формируем URL для поиска
-            search_url = f"https://duckduckgo.com/?q={query}&kl=ru-ru"
+            encoded_query = urllib.parse.quote(query)
+            search_url = f"https://duckduckgo.com/?q={encoded_query}&kl=ru-ru&k1=-1"
             
-            # Переходим на страницу поиска
-            self._browser.goto(search_url)
-            time.sleep(2)  # Даем время для загрузки результатов
+            # Переходим на страницу поиска с повторными попытками
+            for attempt in range(max_retries):
+                try:
+                    self._browser.goto(search_url)
+                    # Ждем загрузки результатов
+                    self._wait_for_search_results()
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Не удалось загрузить страницу поиска: {e}")
+                    time.sleep(2 ** attempt)
             
             # Собираем результаты
-            results = []
-            
-            # Ищем элементы результатов поиска
-            selectors = {
-                'result': '.result',
-                'title': '.result__title',
-                'link': '.result__url',
-                'snippet': '.result__snippet'
-            }
-            
-            # Получаем результаты
-            for i in range(5):  # Берем первые 5 результатов
-                try:
-                    title = self._browser.page.query_selector(f"{selectors['title']}:nth-child({i+1})")
-                    link = self._browser.page.query_selector(f"{selectors['link']}:nth-child({i+1})")
-                    snippet = self._browser.page.query_selector(f"{selectors['snippet']}:nth-child({i+1})")
-                    
-                    if title and link and snippet:
-                        results.append(
-                            f"{i+1}. {title.inner_text()}\n"
-                            f"   URL: {link.get_attribute('href')}\n"
-                            f"   {snippet.inner_text()}\n"
-                        )
-                except Exception as e:
-                    logger.warning(f"Не удалось получить результат {i+1}: {e}")
-                    continue
-            
+            results = self._extract_search_results()
             if not results:
                 return "Поиск через браузер не дал результатов"
             
@@ -999,13 +992,79 @@ class ExecutorAgent(BaseAgent):
             logger.error(f"Ошибка при браузерном поиске: {e}")
             return f"Ошибка браузерного поиска: {str(e)}"
         finally:
-            if self._browser:
+            self._cleanup_browser()
+
+    def _wait_for_search_results(self) -> None:
+        """Ожидает загрузки результатов поиска."""
+        try:
+            # Ждем появления основного контейнера результатов
+            self._browser.page.wait_for_selector('.results', timeout=10000)
+            
+            # Ждем исчезновения индикатора загрузки, если он есть
+            loading_selector = '.loading, .js-loading'
+            if self._browser.page.query_selector(loading_selector):
+                self._browser.page.wait_for_selector(loading_selector, state='hidden', timeout=10000)
+            
+            # Даем дополнительное время для рендеринга
+            time.sleep(1)
+        except Exception as e:
+            raise Exception(f"Таймаут ожидания результатов поиска: {e}")
+
+    def _extract_search_results(self) -> List[str]:
+        """Извлекает результаты поиска со страницы."""
+        results = []
+        try:
+            # Актуальные селекторы DuckDuckGo
+            selectors = {
+                'result': '.result__body',
+                'title': '.result__title',
+                'link': '.result__url',
+                'snippet': '.result__snippet'
+            }
+            
+            # Получаем все результаты
+            result_elements = self._browser.page.query_selector_all(selectors['result'])
+            
+            # Обрабатываем первые 5 результатов
+            for i, result in enumerate(result_elements[:5], 1):
                 try:
-                    self._browser.close()
+                    # Извлекаем компоненты результата
+                    title_element = result.query_selector(selectors['title'])
+                    link_element = result.query_selector(selectors['link'])
+                    snippet_element = result.query_selector(selectors['snippet'])
+                    
+                    # Проверяем наличие всех элементов
+                    if all([title_element, link_element, snippet_element]):
+                        title = title_element.inner_text().strip()
+                        link = link_element.get_attribute('href') or link_element.inner_text().strip()
+                        snippet = snippet_element.inner_text().strip()
+                        
+                        # Форматируем результат
+                        formatted_result = (
+                            f"{i}. {title}\n"
+                            f"   URL: {link}\n"
+                            f"   {snippet}\n"
+                        )
+                        results.append(formatted_result)
                 except Exception as e:
-                    logger.error(f"Ошибка при закрытии браузера: {e}")
+                    logger.warning(f"Не удалось извлечь результат {i}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Ошибка при извлечении результатов: {e}")
+            
+        return results
+
+    def _cleanup_browser(self) -> None:
+        """Закрывает браузер и очищает ресурсы."""
+        if self._browser:
+            try:
+                self._browser.close()
+            except Exception as e:
+                logger.error(f"Ошибка при закрытии браузера: {e}")
+            finally:
                 self._browser = None
-    
+
     def _execute_search(self, instruction: str) -> Optional[str]:
         """Выполняет общий поиск.
         
@@ -1257,130 +1316,69 @@ class ExecutorAgent(BaseAgent):
             size /= 1024
         return f"{size:.1f}TB"
     
-    def _execute_browser_actions(self, instruction: str) -> Optional[str]:
-        """Выполняет действия в браузере.
-        
-        Args:
-            instruction: Инструкция с действиями
-            
-        Returns:
-            Результат действий или None в случае ошибки
-        """
+    def _execute_browser_actions(self, actions: str) -> Optional[str]:
+        """Выполняет действия в браузере."""
         max_retries = 3
         retry_delay = 1.0
         
         try:
-            # Извлекаем действия
-            actions = instruction.replace("browser", "").strip()
-            if not actions:
-                return "Ошибка: пустая инструкция"
-            
             # Инициализируем браузер если нужно
             if not self._browser:
                 for attempt in range(max_retries):
                     try:
-                        self._browser = self._init_browser()
-                        if self._browser:
-                            break
-                        time.sleep(retry_delay * (2 ** attempt))
+                        self._browser = PlaywrightBrowser(headless=True, timeout=30000)
+                        self._browser.launch()
+                        break
                     except Exception as e:
                         if attempt == max_retries - 1:
                             return f"Ошибка: не удалось инициализировать браузер после {max_retries} попыток: {e}"
                         time.sleep(retry_delay * (2 ** attempt))
             
-            if not self._browser:
-                return "Ошибка: не удалось инициализировать браузер"
-            
-            # Выполняем действия
-            result = self._perform_browser_actions(actions)
-            if not result:
-                return "Действия не дали результата"
-            
-            return result
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Ошибка при выполнении действий в браузере: {error_msg}")
-            return f"Ошибка: {error_msg}"
-        finally:
-            # Закрываем браузер
-            if self._browser:
-                try:
-                    self._browser.close()
-                except Exception as e:
-                    logger.error(f"Ошибка при закрытии браузера: {e}")
-                finally:
-                    self._browser = None
-    
-    def _init_browser(self) -> Optional[PlaywrightBrowser]:
-        """Инициализирует браузер.
-        
-        Returns:
-            Экземпляр браузера или None в случае ошибки
-        """
-        try:
-            browser = PlaywrightBrowser(headless=True, timeout=30000)
-            browser.launch()
-            return browser
-        except Exception as e:
-            logger.error(f"Ошибка при инициализации браузера: {e}")
-            return None
-    
-    def _perform_browser_actions(self, actions: str) -> Optional[str]:
-        """Выполняет действия в браузере.
-        
-        Args:
-            actions: Строка с действиями в формате:
-                    url=<url> - открыть страницу
-                    click=<selector> - кликнуть по элементу
-                    type=<selector>:<text> - ввести текст
-                    screenshot=<path> - сделать скриншот
-                    
-        Returns:
-            Результат действий или None в случае ошибки
-        """
-        if not self._browser:
-            return "Ошибка: браузер не инициализирован"
-            
-        try:
             results = []
+            # Разбираем действия
             for action in actions.split(';'):
                 action = action.strip()
                 if not action:
                     continue
                 
-                if action.startswith('url='):
-                    url = action.split('=', 1)[1]
-                    self._browser.goto(url)
-                    results.append(f"Открыта страница: {url}")
-                    results.append(f"Заголовок: {self._browser.get_page_title()}")
-                    results.append(f"SSL: {'Да' if self._browser.check_ssl() else 'Нет'}")
-                    
-                elif action.startswith('click='):
-                    selector = action.split('=', 1)[1]
-                    self._browser.click(selector)
-                    results.append(f"Клик по элементу: {selector}")
-                    
-                elif action.startswith('type='):
-                    _, params = action.split('=', 1)
-                    selector, text = params.split(':', 1)
-                    self._browser.type_text(selector, text)
-                    results.append(f"Введен текст в элемент: {selector}")
-                    
-                elif action.startswith('screenshot='):
-                    path = action.split('=', 1)[1]
-                    screenshot_path = self._browser.screenshot(path)
-                    results.append(f"Создан скриншот: {screenshot_path}")
-                    
-                else:
-                    results.append(f"Неизвестное действие: {action}")
+                try:
+                    if action.startswith('url='):
+                        url = action.split('=', 1)[1]
+                        self._browser.goto(url)
+                        results.append(f"✓ Открыта страница: {url}")
+                        results.append(f"  Заголовок: {self._browser.get_page_title()}")
+                        results.append(f"  SSL: {'Да' if self._browser.check_ssl() else 'Нет'}")
+                        
+                    elif action.startswith('click='):
+                        selector = action.split('=', 1)[1]
+                        self._browser.click(selector)
+                        results.append(f"✓ Клик по элементу: {selector}")
+                        
+                    elif action.startswith('type='):
+                        _, params = action.split('=', 1)
+                        selector, text = params.split(':', 1)
+                        self._browser.type_text(selector, text)
+                        results.append(f"✓ Введен текст в элемент: {selector}")
+                        
+                    elif action.startswith('screenshot='):
+                        path = action.split('=', 1)[1]
+                        screenshot_path = self._browser.screenshot(path)
+                        results.append(f"✓ Создан скриншот: {screenshot_path}")
+                        
+                    else:
+                        results.append(f"⚠ Неизвестное действие: {action}")
+                        
+                except Exception as action_error:
+                    results.append(f"✗ Ошибка при выполнении действия {action}: {str(action_error)}")
                     
             return "\n".join(results)
             
         except Exception as e:
             logger.error(f"Ошибка при выполнении действий в браузере: {e}")
             return f"Ошибка: {str(e)}"
-
+        finally:
+            self._cleanup_browser()
+    
     def _execute_visual_actions(self, instruction: str) -> Optional[str]:
         """Выполняет визуальные действия.
         

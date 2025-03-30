@@ -83,20 +83,20 @@ multiagent_system/
 
 ### 1. Установка Ollama
 
-```bash
+  ```bash
 # Установка Ollama
 curl https://ollama.ai/install.sh | sh
 
 # Запуск сервера
-ollama serve --port 11434
+  ollama serve --port 11434
 
 # Проверка работы
-curl http://localhost:11434/api/tags
-```
+  curl http://localhost:11434/api/tags
+  ```
 
 ### 2. Установка зависимостей
 
-```bash
+   ```bash
 # Создание виртуального окружения
 python -m venv venv
 source venv/bin/activate  # Linux/macOS
@@ -111,7 +111,7 @@ playwright install chromium
 
 ### 3. Настройка окружения
 
-```bash
+     ```bash
 # Создание директорий для данных
 mkdir -p data/images data/documents
 
