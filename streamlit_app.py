@@ -76,7 +76,7 @@ AGENT_STATUSES = {
 }
 
 # CSS стили
-st.markdown("""
+CSS_STYLES = """
 <style>
 :root {
     --idle-color: #6c757d;
@@ -288,7 +288,7 @@ st.markdown("""
     margin-left: 8px;
 }
 </style>
-""", unsafe_allow_html=True)
+"""
 
 def init_session_state() -> None:
     """Инициализирует состояние сессии."""
@@ -364,11 +364,9 @@ def display_agent_status(agent: Any) -> None:
     try:
         status_info = agent.state.get_status_info()
         metrics = agent.state.get_metrics()
-        progress_history = agent.state.get_progress_history()
         
-        # Проверяем и устанавливаем значения по умолчанию
+        # Получаем базовую информацию
         status = status_info.get("status", "idle")
-        status_class = AGENT_STATUSES.get(status, "status-active")
         current_task = status_info.get("current_task", "Ожидание задачи...")
         
         # Форматируем время выполнения
@@ -379,87 +377,49 @@ def display_agent_status(agent: Any) -> None:
             current_time = time.time()
             processing_time = f"{current_time - status_info['start_time']:.2f}с"
         
-        # Создаем прогресс-бар с анимацией для активных состояний
-        progress = max(0.0, min(1.0, status_info.get("progress", 0.0)))
-        progress_bar_class = "progress-animated" if status not in ["completed", "error", "idle"] else ""
-        progress_bar = f"""
-            <div class="progress-bar {progress_bar_class}">
-                <div class="progress-fill" style="width: {progress*100}%"></div>
-            </div>
-        """
-        
-        # Форматируем метрики с проверкой значений
-        steps_text = f"{metrics.get('steps_completed', 0)}/{metrics.get('total_steps', 0)}"
-        if metrics.get('total_steps', 0) == 0:
-            steps_text = f"{metrics.get('steps_completed', 0)}"
+        # Создаем карточку агента
+        with st.container():
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"### {agent.name} {'🟢' if status == 'completed' else '🔴' if status == 'error' else '🟡'}")
+                st.markdown(f"**Статус:** {status}")
+                st.markdown(f"**Задача:** {current_task}")
+                
+                # Отображаем метрики
+                metrics_text = f"""
+                - Токены: {metrics.get('tokens', 0)}
+                - API вызовы: {metrics.get('api_calls', 0)}
+                - Шаги: {metrics.get('steps_completed', 0)}/{metrics.get('total_steps', 0) if metrics.get('total_steps', 0) > 0 else '∞'}
+                - Время: {processing_time}
+                """
+                st.markdown(metrics_text)
+                
+                # Отображаем прогресс
+                if status not in ["idle", "completed", "error"]:
+                    progress = max(0.0, min(1.0, status_info.get("progress", 0.0)))
+                    st.progress(progress)
+                
+                # Отображаем ошибку если есть
+                if status == "error" and status_info.get("error"):
+                    st.error(status_info["error"])
             
-        metrics_text = f"""
-            <div class="metrics">
-                <span title="Использовано токенов">🔤 {metrics.get('tokens', 0)}</span>
-                <span title="Вызовы API">🔄 {metrics.get('api_calls', 0)}</span>
-                <span title="Выполнено шагов">📊 {steps_text}</span>
-            </div>
-        """
-        
-        # Добавляем индикатор состояния и анимацию
-        status_indicator = "🟢" if status == "completed" else "🔴" if status == "error" else "🟡"
-        
-        # Форматируем карточку агента
-        agent_card = f"""
-            <div class="agent-card {status_class}">
-                <div class="agent-header">
-                    <h4>{agent.name} {status_indicator}</h4>
-                    <span class="status-badge {status_class}">{status}</span>
-                </div>
-                <p class="task-description">{current_task}</p>
-                {progress_bar}
-                {metrics_text}
-                <p class="processing-time">⏱️ {processing_time}</p>
-                {f'<p class="error-message">❌ {status_info["error"]}</p>' if status_info.get("error") else ''}
-            </div>
-        """
-        
-        st.markdown(agent_card, unsafe_allow_html=True)
-        
-        # Отображаем график прогресса только если есть история и агент активен
-        if progress_history and status not in ["completed", "error", "idle"]:
-            df = pd.DataFrame(progress_history)
-            if not df.empty:
-                # Добавляем относительное время
-                if len(df) > 0:
-                    df['relative_time'] = df['time'] - df['time'].iloc[0]
-                    
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=df['relative_time'],
-                    y=df['progress'],
-                    mode='lines+markers',
-                    name='Прогресс',
-                    line=dict(color='#00b4d8', width=2),
-                    marker=dict(size=4)
-                ))
-                fig.update_layout(
-                    height=100,
-                    margin=dict(l=0, r=0, t=0, b=0),
-                    showlegend=False,
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(
-                        showgrid=True,
-                        gridcolor='rgba(128,128,128,0.1)',
-                        zeroline=False,
-                        showticklabels=True,
-                        title='Время (с)'
-                    ),
-                    yaxis=dict(
-                        showgrid=True,
-                        gridcolor='rgba(128,128,128,0.1)',
-                        zeroline=False,
-                        showticklabels=True,
-                        range=[0, 1]
-                    )
+            with col2:
+                # Отображаем индикатор статуса
+                status_color = {
+                    "completed": "green",
+                    "error": "red",
+                    "idle": "gray"
+                }.get(status, "blue")
+                
+                st.markdown(
+                    f"""
+                    <div style="width: 20px; height: 20px; border-radius: 50%; background-color: {status_color}; margin: auto;"></div>
+                    """,
+                    unsafe_allow_html=True
                 )
-                st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        
     except Exception as e:
         logger.error(f"Ошибка при отображении статуса агента {agent.name}: {e}")
         st.error(f"Ошибка отображения статуса агента {agent.name}")
@@ -680,27 +640,23 @@ def display_validation_error(error_info: Dict[str, Any]) -> None:
     issues = error_info.get("issues", [])
     suggestions = error_info.get("suggestions", [])
     
-    error_html = f"""
-    <div class="validation-error">
-        <h4>
-            ❌ Ошибка валидации
-            <span class="command-type">{command_type}</span>
-        </h4>
-        
-        <ul class="validation-issues">
-            {"".join(f"<li>{issue}</li>" for issue in issues)}
-        </ul>
-        
-        <div class="validation-suggestions">
-            <h5>💡 Рекомендации:</h5>
-            <ul>
-                {"".join(f"<li>{suggestion}</li>" for suggestion in suggestions)}
+    st.markdown(
+        f"""
+        <div class="validation-error">
+            <h4>❌ Ошибка валидации <span class="command-type">{command_type}</span></h4>
+            <ul class="validation-issues">
+                {"".join(f"<li>{issue}</li>" for issue in issues)}
             </ul>
+            <div class="validation-suggestions">
+                <h5>💡 Рекомендации:</h5>
+                <ul>
+                    {"".join(f"<li>{suggestion}</li>" for suggestion in suggestions)}
+                </ul>
+            </div>
         </div>
-    </div>
-    """
-    
-    st.markdown(error_html, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
 def process_user_query(user_query: str) -> None:
     """Обрабатывает запрос пользователя."""
@@ -727,26 +683,34 @@ def process_user_query(user_query: str) -> None:
         # Получаем параметры Ollama
         ollama_opts = st.session_state.settings.get_ollama_settings()
 
-        # Отображаем статус агентов
-        st.markdown("### 📊 Статус агентов")
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            display_agent_status(planner)
-        with col2:
-            display_agent_status(executor)
-        with col3:
-            display_agent_status(critic)
-        with col4:
-            display_agent_status(praise)
-        with col5:
-            display_agent_status(arbiter)
+        # Создаем контейнер для статусов агентов
+        status_container = st.empty()
+        
+        def update_agent_statuses():
+            with status_container.container():
+                st.markdown("### 📊 Статус агентов")
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    display_agent_status(planner)
+                with col2:
+                    display_agent_status(executor)
+                with col3:
+                    display_agent_status(critic)
+                with col4:
+                    display_agent_status(praise)
+                with col5:
+                    display_agent_status(arbiter)
 
-        # Выполняем итерации
+        # Выполняем итерации с обновлением статусов
         execute_iterations(
             user_query,
             planner, executor, critic, praise, arbiter,
-            ollama_opts
+            ollama_opts,
+            update_agent_statuses
         )
+        
+        # Финальное обновление статусов
+        update_agent_statuses()
         
         logger.info("Запрос пользователя успешно обработан")
     except Exception as e:
@@ -760,13 +724,15 @@ def execute_iterations(
     critic: CriticAgent,
     praise: PraiseAgent,
     arbiter: ArbiterAgent,
-    ollama_opts: Dict[str, Any]
+    ollama_opts: Dict[str, Any],
+    update_status_callback: callable
 ) -> None:
     """Выполняет итерации обработки запроса."""
     try:
         # Шаг 1: PlannerAgent
         with st.expander("📋 Шаг 1: PlannerAgent", expanded=True):
             plan_text = execute_planner(user_query, planner, ollama_opts)
+            update_status_callback()
         
         current_instruction = plan_text
 
@@ -779,20 +745,24 @@ def execute_iterations(
             # ExecutorAgent
             with st.expander("⚡ ExecutorAgent", expanded=True):
                 exec_text = execute_executor(current_instruction, executor, ollama_opts)
+                update_status_callback()
 
             # CriticAgent
             with st.expander("🔍 CriticAgent", expanded=False):
                 cr_text = execute_critic(exec_text, critic, ollama_opts)
+                update_status_callback()
 
             # PraiseAgent
             with st.expander("🌟 PraiseAgent", expanded=False):
                 pr_text = execute_praise(exec_text, praise, ollama_opts)
+                update_status_callback()
 
             # ArbiterAgent
             if iteration < max_iterations:
                 with st.expander("⚖️ ArbiterAgent", expanded=False):
                     arb_text = execute_arbiter(exec_text, cr_text, pr_text, arbiter, ollama_opts)
                     current_instruction = arb_text
+                    update_status_callback()
             else:
                 st.session_state.final_answer = exec_text
                 

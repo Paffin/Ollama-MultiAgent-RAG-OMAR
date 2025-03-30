@@ -908,7 +908,8 @@ is_valid: <true/false>
             "score": 0,
             "issues": [],
             "suggestions": [],
-            "is_valid": False
+            "is_valid": False,
+            "command_type": command_type
         }
         
         try:
@@ -1034,20 +1035,31 @@ is_valid: <true/false>
         Returns:
             Тип команды
         """
-        instruction = instruction.lower()
+        instruction = instruction.lower().strip()
         
+        # Проверяем префиксы команд
+        if instruction.startswith("ducksearch:"):
+            return "ducksearch"
+        elif instruction.startswith("browser:"):
+            return "browser"
+        elif instruction.startswith("visual:"):
+            return "visual"
+        elif instruction.startswith("cmd:"):
+            return "cmd"
+        elif instruction.startswith("ls:"):
+            return "ls"
+            
+        # Если префикс не найден, проверяем по ключевым словам
         if "ducksearch" in instruction or "поиск" in instruction:
             return "ducksearch"
-        elif "search" in instruction or "найти" in instruction:
-            return "search"
-        elif "cmd" in instruction or "команда" in instruction:
-            return "cmd"
-        elif "ls" in instruction or "директория" in instruction:
-            return "ls"
         elif "browser" in instruction or "браузер" in instruction:
             return "browser"
         elif "visual" in instruction or "визуальный" in instruction:
             return "visual"
+        elif "cmd" in instruction or "команда" in instruction:
+            return "cmd"
+        elif "ls" in instruction or "директория" in instruction:
+            return "ls"
         else:
             return "general"
 
