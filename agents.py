@@ -958,29 +958,30 @@ is_valid: <true/false>
             return None
     
     def _perform_ducksearch(self, query: str) -> List[Dict[str, Any]]:
-        """Выполняет поисковый запрос через DuckDuckGo.
-        
-        Args:
-            query: Поисковый запрос
-            
-        Returns:
-            Список результатов поиска
-        """
+        """Выполняет поисковый запрос через DuckDuckGo."""
         try:
-            # Здесь должна быть реализация поиска через DuckDuckGo API
-            # Временная заглушка
-            return [
-                {
-                    "title": "Результат поиска 1",
-                    "link": "http://example.com/1",
-                    "snippet": "Описание результата 1"
-                },
-                {
-                    "title": "Результат поиска 2",
-                    "link": "http://example.com/2",
-                    "snippet": "Описание результата 2"
-                }
-            ]
+            from duckduckgo_search import DDGS
+            with DDGS() as ddgs:
+                results = list(ddgs.text(
+                    query,
+                    max_results=15,
+                    timeout=30
+                ))
+                if not results:
+                    return []
+                
+                # Форматируем результаты
+                formatted_results = []
+                for result in results:
+                    formatted_results.append({
+                        "title": result.get("title", ""),
+                        "link": result.get("link", ""),
+                        "snippet": result.get("body", "")
+                    })
+                return formatted_results
+        except ImportError:
+            logger.error("Пакет duckduckgo-search не установлен")
+            return []
         except Exception as e:
             logger.error(f"Ошибка при выполнении DuckDuckGo запроса: {e}")
             return []
@@ -1093,23 +1094,44 @@ is_valid: <true/false>
             return None
     
     def _is_safe_command(self, command: str) -> bool:
-        """Проверяет безопасность команды.
-        
-        Args:
-            command: Команда для проверки
-            
-        Returns:
-            True если команда безопасна
-        """
+        """Проверяет безопасность команды."""
         # Список небезопасных команд
-        unsafe_commands = [
-            "rm", "mkfs", "dd", "mkfs", "fdisk", "parted",
-            "chmod", "chown", "sudo", "su", "passwd"
+        unsafe_commands = {
+            "rm": "Удаление файлов",
+            "del": "Удаление файлов",
+            "format": "Форматирование диска",
+            "mkfs": "Создание файловой системы",
+            "dd": "Побитовое копирование",
+            "chmod": "Изменение прав доступа",
+            "chown": "Изменение владельца",
+            "sudo": "Повышение привилегий",
+            "su": "Смена пользователя"
+        }
+        
+        # Опасные паттерны
+        unsafe_patterns = [
+            r">.*",  # Перенаправление вывода
+            r">>.*", # Добавление к файлу
+            r"\|.*", # Пайпы
+            r"&.*",  # Фоновые процессы
+            r";.*",  # Последовательное выполнение
+            r"&&.*"  # Условное выполнение
         ]
         
         # Проверяем команду
-        command = command.lower()
-        return not any(unsafe in command for unsafe in unsafe_commands)
+        command = command.lower().strip()
+        
+        # Проверяем опасные команды
+        for unsafe_cmd in unsafe_commands:
+            if unsafe_cmd in command.split():
+                return False
+        
+        # Проверяем опасные паттерны
+        for pattern in unsafe_patterns:
+            if re.search(pattern, command):
+                return False
+        
+        return True
     
     def _run_shell_command(self, command: str) -> Optional[str]:
         """Запускает shell-команду.
@@ -1160,20 +1182,21 @@ is_valid: <true/false>
             return None
     
     def _is_safe_path(self, path: str) -> bool:
-        """Проверяет безопасность пути.
-        
-        Args:
-            path: Путь для проверки
+        """Проверяет безопасность пути."""
+        try:
+            # Нормализуем и получаем абсолютный путь
+            abs_path = os.path.abspath(os.path.normpath(path))
+            work_dir = os.path.abspath(os.getcwd())
             
-        Returns:
-            True если путь безопасен
-        """
-        # Нормализуем путь
-        path = os.path.normpath(path)
-        
-        # Проверяем на наличие опасных компонентов
-        unsafe_components = ["..", "~", "/", "\\"]
-        return not any(component in path for component in unsafe_components)
+            # Проверяем, что путь находится внутри рабочей директории
+            if not abs_path.startswith(work_dir):
+                return False
+            
+            # Проверяем на наличие опасных компонентов
+            unsafe_components = ["..", "~", "$", "`", "*", "?", "{", "}", "[", "]"]
+            return not any(component in path for component in unsafe_components)
+        except Exception:
+            return False
     
     def _get_directory_contents(self, path: str) -> List[Dict[str, Any]]:
         """Получает содержимое директории.
@@ -1245,6 +1268,9 @@ is_valid: <true/false>
         Returns:
             Результат действий или None в случае ошибки
         """
+        max_retries = 3
+        retry_delay = 1.0
+        
         try:
             # Извлекаем действия
             actions = instruction.replace("browser", "").strip()
@@ -1253,9 +1279,19 @@ is_valid: <true/false>
             
             # Инициализируем браузер если нужно
             if not self._browser:
-                self._browser = self._init_browser()
-                if not self._browser:
-                    return "Ошибка: не удалось инициализировать браузер"
+                for attempt in range(max_retries):
+                    try:
+                        self._browser = self._init_browser()
+                        if self._browser:
+                            break
+                        time.sleep(retry_delay * (2 ** attempt))
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            return f"Ошибка: не удалось инициализировать браузер после {max_retries} попыток: {e}"
+                        time.sleep(retry_delay * (2 ** attempt))
+            
+            if not self._browser:
+                return "Ошибка: не удалось инициализировать браузер"
             
             # Выполняем действия
             result = self._perform_browser_actions(actions)
@@ -1265,13 +1301,18 @@ is_valid: <true/false>
             return result
             
         except Exception as e:
-            logger.error(f"Ошибка при выполнении действий в браузере: {e}")
-            return None
+            error_msg = str(e)
+            logger.error(f"Ошибка при выполнении действий в браузере: {error_msg}")
+            return f"Ошибка: {error_msg}"
         finally:
             # Закрываем браузер
             if self._browser:
-                self._browser.close()
-                self._browser = None
+                try:
+                    self._browser.close()
+                except Exception as e:
+                    logger.error(f"Ошибка при закрытии браузера: {e}")
+                finally:
+                    self._browser = None
     
     def _init_browser(self) -> Optional[PlaywrightBrowser]:
         """Инициализирует браузер.
@@ -1389,36 +1430,55 @@ is_valid: <true/false>
                 
                 if action.startswith('analyze='):
                     path = action.split('=', 1)[1]
+                    if not self._is_safe_path(path):
+                        results.append(f"Ошибка: небезопасный путь {path}")
+                        continue
+                        
                     result = llava_analyze_screenshot_via_ollama_llava(
                         path,
-                        "Проанализируйте это изображение и опишите его содержимое."
+                        "Проанализируйте это изображение и опишите его содержимое.",
+                        model="ollama/llava"
                     )
                     results.append(f"Анализ изображения {path}:\n{result}")
                     
                 elif action.startswith('describe='):
                     path = action.split('=', 1)[1]
+                    if not self._is_safe_path(path):
+                        results.append(f"Ошибка: небезопасный путь {path}")
+                        continue
+                        
                     result = llava_analyze_screenshot_via_ollama_llava(
                         path,
-                        "Опишите подробно, что вы видите на этом изображении."
+                        "Опишите подробно, что вы видите на этом изображении.",
+                        model="ollama/llava"
                     )
                     results.append(f"Описание изображения {path}:\n{result}")
                     
                 elif action.startswith('ocr='):
                     path = action.split('=', 1)[1]
+                    if not self._is_safe_path(path):
+                        results.append(f"Ошибка: небезопасный путь {path}")
+                        continue
+                        
                     result = llava_analyze_screenshot_via_ollama_llava(
                         path,
-                        "Прочитайте и извлеките весь текст с этого изображения."
+                        "Прочитайте и извлеките весь текст с этого изображения.",
+                        model="ollama/llava"
                     )
                     results.append(f"Распознанный текст из {path}:\n{result}")
                     
                 else:
                     results.append(f"Неизвестное действие: {action}")
-                    
-            return "\n".join(results)
+            
+            if not results:
+                return "Не удалось выполнить визуальные действия"
+                
+            return "\n\n".join(results)
             
         except Exception as e:
-            logger.error(f"Ошибка при выполнении визуальных действий: {e}")
-            return f"Ошибка: {str(e)}"
+            error_msg = str(e)
+            logger.error(f"Ошибка при выполнении визуальных действий: {error_msg}")
+            return f"Ошибка: {error_msg}"
     
     def _execute_general_command(self, instruction: str) -> Optional[str]:
         """Выполняет общую команду.
@@ -1873,6 +1933,66 @@ improved_critique: <улучшенная критика>
             logger.error(f"Ошибка при потоковом выводе: {e}")
             yield f"Ошибка: {str(e)}"
 
+    def _build_quality_analysis_prompt(self, result: str) -> str:
+        """Создает промпт для анализа качества."""
+        return f"""Проанализируйте качество результата:
+
+Результат: {result}
+
+Проанализируйте:
+1. Точность и достоверность
+2. Полноту информации
+3. Логичность и последовательность
+4. Ясность и понятность
+5. Профессиональность
+
+Формат ответа:
+score: <число от 0 до 100>
+strengths: [<список сильных сторон>]
+weaknesses: [<список слабых сторон>]
+suggestions: [<список предложений>]
+"""
+
+    def _build_relevance_analysis_prompt(self, result: str) -> str:
+        """Создает промпт для анализа релевантности."""
+        return f"""Проанализируйте релевантность результата:
+
+Результат: {result}
+
+Проанализируйте:
+1. Соответствие запросу
+2. Актуальность информации
+3. Полезность для пользователя
+4. Своевременность
+5. Контекстность
+
+Формат ответа:
+score: <число от 0 до 100>
+strengths: [<список сильных сторон>]
+weaknesses: [<список слабых сторон>]
+suggestions: [<список предложений>]
+"""
+
+    def _build_performance_analysis_prompt(self, result: str) -> str:
+        """Создает промпт для анализа производительности."""
+        return f"""Проанализируйте производительность результата:
+
+Результат: {result}
+
+Проанализируйте:
+1. Эффективность
+2. Оптимальность
+3. Скорость выполнения
+4. Использование ресурсов
+5. Масштабируемость
+
+Формат ответа:
+score: <число от 0 до 100>
+strengths: [<список сильных сторон>]
+weaknesses: [<список слабых сторон>]
+suggestions: [<список предложений>]
+"""
+
 class PraiseAgent(BaseAgent):
     """Агент для анализа сильных сторон результатов.
     
@@ -1959,33 +2079,19 @@ class PraiseAgent(BaseAgent):
             logger.error(f"Ошибка при анализе сильных сторон: {error_msg}")
             return f"Ошибка анализа: {error_msg}"
     
-    def _analyze_quality(self, result: str) -> Dict[str, Any]:
-        """Анализирует качество результата.
-        
-        Args:
-            result: Результат для анализа
-            
-        Returns:
-            Результаты анализа качества
-        """
+    def _analyze_quality(self, result: str, **kwargs) -> Dict[str, Any]:
+        """Анализирует качество результата."""
         try:
             prompt = self._build_quality_analysis_prompt(result)
-            response = self.client.generate(prompt, self.model_name)
+            response = self.client.generate(prompt=prompt, model=self.model_name, **kwargs)
             return self._parse_analysis_response(response)
         except Exception as e:
             logger.error(f"Ошибка при анализе качества: {e}")
             return {}
-    
+
     def _build_quality_analysis_prompt(self, result: str) -> str:
-        """Создает промпт для анализа качества.
-        
-        Args:
-            result: Результат для анализа
-            
-        Returns:
-            Промпт для анализа
-        """
-        return f"""Проанализируйте качество результата:
+        """Создает промпт для анализа качества."""
+        return f"""Проанализируйте сильные стороны результата:
 
 Результат: {result}
 
@@ -1999,39 +2105,23 @@ class PraiseAgent(BaseAgent):
 Формат ответа:
 score: <число от 0 до 100>
 strengths: [<список сильных сторон>]
-weaknesses: [<список слабых сторон>]
-suggestions: [<список предложений>]
 achievements: [<список достижений>]
 innovations: [<список инноваций>]
 benefits: [<список преимуществ>]
 """
-    
-    def _analyze_relevance(self, result: str) -> Dict[str, Any]:
-        """Анализирует релевантность результата.
-        
-        Args:
-            result: Результат для анализа
-            
-        Returns:
-            Результаты анализа релевантности
-        """
+
+    def _analyze_relevance(self, result: str, **kwargs) -> Dict[str, Any]:
+        """Анализирует релевантность результата."""
         try:
             prompt = self._build_relevance_analysis_prompt(result)
-            response = self.client.generate(prompt, self.model_name)
+            response = self.client.generate(prompt=prompt, model=self.model_name, **kwargs)
             return self._parse_analysis_response(response)
         except Exception as e:
             logger.error(f"Ошибка при анализе релевантности: {e}")
             return {}
     
     def _build_relevance_analysis_prompt(self, result: str) -> str:
-        """Создает промпт для анализа релевантности.
-        
-        Args:
-            result: Результат для анализа
-            
-        Returns:
-            Промпт для анализа
-        """
+        """Создает промпт для анализа релевантности."""
         return f"""Проанализируйте релевантность результата:
 
 Результат: {result}
@@ -2046,40 +2136,24 @@ benefits: [<список преимуществ>]
 Формат ответа:
 score: <число от 0 до 100>
 strengths: [<список сильных сторон>]
-weaknesses: [<список слабых сторон>]
-suggestions: [<список предложений>]
 achievements: [<список достижений>]
 innovations: [<список инноваций>]
 benefits: [<список преимуществ>]
 """
     
-    def _analyze_performance(self, result: str) -> Dict[str, Any]:
-        """Анализирует производительность результата.
-        
-        Args:
-            result: Результат для анализа
-            
-        Returns:
-            Результаты анализа производительности
-        """
+    def _analyze_performance(self, result: str, **kwargs) -> Dict[str, Any]:
+        """Анализирует производительность результата."""
         try:
             prompt = self._build_performance_analysis_prompt(result)
-            response = self.client.generate(prompt, self.model_name)
+            response = self.client.generate(prompt=prompt, model=self.model_name, **kwargs)
             return self._parse_analysis_response(response)
         except Exception as e:
             logger.error(f"Ошибка при анализе производительности: {e}")
             return {}
     
     def _build_performance_analysis_prompt(self, result: str) -> str:
-        """Создает промпт для анализа производительности.
-        
-        Args:
-            result: Результат для анализа
-            
-        Returns:
-            Промпт для анализа
-        """
-        return f"""Проанализируйте производительность результата:
+        """Создает промпт для анализа производительности."""
+        return f"""Проанализируйте эффективность результата:
 
 Результат: {result}
 
@@ -2093,8 +2167,6 @@ benefits: [<список преимуществ>]
 Формат ответа:
 score: <число от 0 до 100>
 strengths: [<список сильных сторон>]
-weaknesses: [<список слабых сторон>]
-suggestions: [<список предложений>]
 achievements: [<список достижений>]
 innovations: [<список инноваций>]
 benefits: [<список преимуществ>]
