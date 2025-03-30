@@ -63,277 +63,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Стили CSS
-CSS_STYLES = """
-    <style>
-    /* Основные цвета */
-    :root {
-        --primary-bg: #1a1a1a;
-        --secondary-bg: #2d2d2d;
-        --accent-color: #00b4d8;
-        --text-primary: #e0e0e0;
-        --text-secondary: #b0b0b0;
-        --border-color: #404040;
-        --success-color: #2ecc71;
-        --warning-color: #f1c40f;
-        --error-color: #e74c3c;
-        --planning-color: #3498db;
-        --executing-color: #e67e22;
-        --criticizing-color: #9b59b6;
-        --praising-color: #27ae60;
-        --arbitrating-color: #34495e;
-    }
-
-    /* Основной фон */
-    .main {
-        background-color: var(--primary-bg);
-        color: var(--text-primary);
-        padding: 2rem;
-    }
-
-    /* Кнопки */
-    .stButton>button {
-        width: 100%;
-        margin-top: 1rem;
-        background-color: var(--accent-color);
-        color: var(--text-primary);
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-
-    .stButton>button:hover {
-        background-color: #0096c7;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    }
-
-    /* Карточки агентов */
-    .agent-card {
-        background-color: var(--secondary-bg);
-        border-radius: 8px;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--border-color);
-        position: relative;
-        overflow: hidden;
-        transition: all 0.3s ease;
-    }
-
-    .agent-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    /* Статус-бейджи */
-    .status-badge {
-        position: absolute;
-        top: 1rem;
-        right: 1rem;
-        padding: 0.4rem 0.8rem;
-        border-radius: 4px;
-        font-size: 0.7rem;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        transition: all 0.3s ease;
-    }
-
-    .status-active.planning {
-        background-color: rgba(52, 152, 219, 0.2);
-        color: var(--planning-color);
-        border: 1px solid var(--planning-color);
-    }
-
-    .status-active.executing {
-        background-color: rgba(230, 126, 34, 0.2);
-        color: var(--executing-color);
-        border: 1px solid var(--executing-color);
-    }
-
-    .status-active.criticizing {
-        background-color: rgba(155, 89, 182, 0.2);
-        color: var(--criticizing-color);
-        border: 1px solid var(--criticizing-color);
-    }
-
-    .status-active.praising {
-        background-color: rgba(39, 174, 96, 0.2);
-        color: var(--praising-color);
-        border: 1px solid var(--praising-color);
-    }
-
-    .status-active.arbitrating {
-        background-color: rgba(52, 73, 94, 0.2);
-        color: var(--arbitrating-color);
-        border: 1px solid var(--arbitrating-color);
-    }
-
-    .status-completed {
-        background-color: rgba(46, 204, 113, 0.2);
-        color: var(--success-color);
-        border: 1px solid var(--success-color);
-    }
-
-    .status-error {
-        background-color: rgba(231, 76, 60, 0.2);
-        color: var(--error-color);
-        border: 1px solid var(--error-color);
-    }
-
-    /* Цепочка выполнения */
-    .chain-trace {
-        background-color: var(--secondary-bg);
-        border-radius: 8px;
-        padding: 1rem;
-        margin-top: 1rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--border-color);
-    }
-
-    /* Заголовки */
-    h1, h2, h3, h4, h5, h6 {
-        color: var(--text-primary);
-        margin-bottom: 1rem;
-    }
-
-    /* Текстовые поля */
-    .stTextArea>div>div>textarea {
-        background-color: var(--secondary-bg);
-        color: var(--text-primary);
-        border: 1px solid var(--border-color);
-    }
-
-    /* Селекты и слайдеры */
-    .stSelectbox>div>div>select,
-    .stSlider>div>div>div {
-        background-color: var(--secondary-bg);
-        color: var(--text-primary);
-        border: 1px solid var(--border-color);
-    }
-
-    /* Сайдбар */
-    .css-1d391kg {
-        background-color: var(--secondary-bg);
-    }
-
-    /* Экспандеры */
-    .streamlit-expanderHeader {
-        background-color: var(--secondary-bg);
-        color: var(--text-primary);
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        padding: 0.5rem;
-        margin-bottom: 0.5rem;
-    }
-
-    /* Итоговый ответ */
-    .final-answer {
-        background-color: var(--secondary-bg);
-        border-radius: 8px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--border-color);
-    }
-
-    /* Предупреждения и ошибки */
-    .stAlert {
-        background-color: var(--secondary-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-
-    /* Анимации */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .agent-card, .chain-trace, .final-answer {
-        animation: fadeIn 0.3s ease-out;
-    }
-
-    /* Прогресс-бар */
-    .progress-bar {
-        width: 100%;
-        height: 6px;
-        background-color: var(--border-color);
-        border-radius: 3px;
-        margin: 1rem 0;
-        overflow: hidden;
-    }
-    
-    .progress-fill {
-        height: 100%;
-        background-color: var(--accent-color);
-        transition: width 0.3s ease;
-        animation: progressPulse 2s infinite;
-    }
-    
-    /* Метрики */
-    .metrics {
-        display: flex;
-        justify-content: space-between;
-        margin: 0.8rem 0;
-        font-size: 0.8rem;
-        color: var(--text-secondary);
-    }
-    
-    .metrics span {
-        background-color: rgba(0, 0, 0, 0.2);
-        padding: 0.3rem 0.6rem;
-        border-radius: 3px;
-        border: 1px solid var(--border-color);
-    }
-    
-    /* Время обработки */
-    .processing-time {
-        font-size: 0.8rem;
-        color: var(--text-secondary);
-        margin: 0.5rem 0;
-        padding: 0.3rem 0;
-        border-top: 1px solid var(--border-color);
-    }
-    
-    /* Сообщение об ошибке */
-    .error-message {
-        color: var(--error-color);
-        font-size: 0.9rem;
-        margin: 0.5rem 0;
-        padding: 0.5rem;
-        background-color: rgba(231, 76, 60, 0.1);
-        border-radius: 4px;
-        border: 1px solid var(--error-color);
-    }
-
-    /* Заголовки агентов */
-    .agent-card h4 {
-        margin: 0;
-        padding-right: 4rem;
-        font-size: 1.1rem;
-        color: var(--accent-color);
-        font-weight: bold;
-    }
-    
-    /* Текущая задача */
-    .agent-card p {
-        margin: 0.5rem 0;
-        font-size: 0.9rem;
-        line-height: 1.4;
-        color: var(--text-primary);
-    }
-    </style>
-"""
-
 # Статусы агентов
 AGENT_STATUSES = {
-    "idle": "status-active",
+    "idle": "status-idle",
     "planning": "status-active planning",
     "executing": "status-active executing",
     "criticizing": "status-active criticizing",
@@ -342,6 +74,221 @@ AGENT_STATUSES = {
     "completed": "status-completed",
     "error": "status-error"
 }
+
+# CSS стили
+st.markdown("""
+<style>
+:root {
+    --idle-color: #6c757d;
+    --planning-color: #17a2b8;
+    --executing-color: #28a745;
+    --criticizing-color: #dc3545;
+    --praising-color: #ffc107;
+    --arbitrating-color: #6f42c1;
+    --completed-color: #198754;
+    --error-color: #dc3545;
+}
+
+.agent-card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 15px;
+    margin: 10px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+}
+
+.agent-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.agent-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.agent-header h4 {
+    margin: 0;
+    font-size: 1.1em;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.status-idle {
+    background: var(--idle-color);
+    color: white;
+}
+
+.status-active.planning {
+    background: var(--planning-color);
+    color: white;
+}
+
+.status-active.executing {
+    background: var(--executing-color);
+    color: white;
+}
+
+.status-active.criticizing {
+    background: var(--criticizing-color);
+    color: white;
+}
+
+.status-active.praising {
+    background: var(--praising-color);
+    color: black;
+}
+
+.status-active.arbitrating {
+    background: var(--arbitrating-color);
+    color: white;
+}
+
+.status-completed {
+    background: var(--completed-color);
+    color: white;
+}
+
+.status-error {
+    background: var(--error-color);
+    color: white;
+}
+
+.task-description {
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.7);
+    margin: 8px 0;
+    min-height: 40px;
+}
+
+.progress-bar {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    height: 6px;
+    margin: 10px 0;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.3) 100%);
+    transition: width 0.3s ease;
+}
+
+.progress-animated .progress-fill {
+    background: linear-gradient(90deg, 
+        rgba(255,255,255,0.1) 0%, 
+        rgba(255,255,255,0.3) 50%,
+        rgba(255,255,255,0.1) 100%
+    );
+    background-size: 200% 100%;
+    animation: progress-animation 2s linear infinite;
+}
+
+@keyframes progress-animation {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
+.metrics {
+    display: flex;
+    gap: 15px;
+    margin: 10px 0;
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.metrics span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.processing-time {
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.6);
+    margin: 5px 0;
+}
+
+.error-message {
+    color: var(--error-color);
+    font-size: 0.9em;
+    margin: 5px 0;
+    padding: 8px;
+    background: rgba(220, 53, 69, 0.1);
+    border-radius: 4px;
+}
+
+.validation-error {
+    background: rgba(220, 53, 69, 0.1);
+    border: 1px solid var(--error-color);
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+}
+
+.validation-error h4 {
+    color: var(--error-color);
+    margin: 0 0 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.validation-issues {
+    margin: 10px 0;
+    padding-left: 20px;
+}
+
+.validation-issues li {
+    color: rgba(255, 255, 255, 0.8);
+    margin: 5px 0;
+}
+
+.validation-suggestions {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.validation-suggestions h5 {
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 8px 0;
+    font-size: 0.9em;
+}
+
+.validation-suggestions ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.validation-suggestions li {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85em;
+}
+
+.command-type {
+    display: inline-block;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    font-size: 0.8em;
+    color: rgba(255, 255, 255, 0.7);
+    margin-left: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 def init_session_state() -> None:
     """Инициализирует состояние сессии."""
@@ -419,56 +366,77 @@ def display_agent_status(agent: Any) -> None:
         metrics = agent.state.get_metrics()
         progress_history = agent.state.get_progress_history()
         
-        status_class = AGENT_STATUSES.get(status_info["status"], "status-active")
+        # Проверяем и устанавливаем значения по умолчанию
+        status = status_info.get("status", "idle")
+        status_class = AGENT_STATUSES.get(status, "status-active")
+        current_task = status_info.get("current_task", "Ожидание задачи...")
         
         # Форматируем время выполнения
-        processing_time = "N/A"
+        processing_time = "0.00с"
         if status_info.get("processing_time"):
             processing_time = f"{status_info['processing_time']:.2f}с"
+        elif status_info.get("start_time") and status not in ["completed", "error"]:
+            current_time = time.time()
+            processing_time = f"{current_time - status_info['start_time']:.2f}с"
         
-        # Создаем прогресс-бар
+        # Создаем прогресс-бар с анимацией для активных состояний
         progress = max(0.0, min(1.0, status_info.get("progress", 0.0)))
+        progress_bar_class = "progress-animated" if status not in ["completed", "error", "idle"] else ""
         progress_bar = f"""
-            <div class="progress-bar">
+            <div class="progress-bar {progress_bar_class}">
                 <div class="progress-fill" style="width: {progress*100}%"></div>
             </div>
         """
         
-        # Форматируем метрики
+        # Форматируем метрики с проверкой значений
+        steps_text = f"{metrics.get('steps_completed', 0)}/{metrics.get('total_steps', 0)}"
+        if metrics.get('total_steps', 0) == 0:
+            steps_text = f"{metrics.get('steps_completed', 0)}"
+            
         metrics_text = f"""
             <div class="metrics">
-                <span>Токены: {metrics.get('tokens', 0)}</span>
-                <span>API: {metrics.get('api_calls', 0)}</span>
-                <span>Шаги: {metrics.get('steps_completed', 0)}/{metrics.get('total_steps', 0)}</span>
+                <span title="Использовано токенов">🔤 {metrics.get('tokens', 0)}</span>
+                <span title="Вызовы API">🔄 {metrics.get('api_calls', 0)}</span>
+                <span title="Выполнено шагов">📊 {steps_text}</span>
             </div>
         """
         
+        # Добавляем индикатор состояния и анимацию
+        status_indicator = "🟢" if status == "completed" else "🔴" if status == "error" else "🟡"
+        
         # Форматируем карточку агента
         agent_card = f"""
-            <div class="agent-card">
-                <h4>{agent.name}</h4>
-                <span class="status-badge {status_class}">{status_info.get('status', 'idle')}</span>
-                <p>{status_info.get('current_task', '')}</p>
+            <div class="agent-card {status_class}">
+                <div class="agent-header">
+                    <h4>{agent.name} {status_indicator}</h4>
+                    <span class="status-badge {status_class}">{status}</span>
+                </div>
+                <p class="task-description">{current_task}</p>
                 {progress_bar}
                 {metrics_text}
-                <p class="processing-time">Время: {processing_time}</p>
-                {f'<p class="error-message">Ошибка: {status_info["error"]}</p>' if status_info.get("error") else ''}
+                <p class="processing-time">⏱️ {processing_time}</p>
+                {f'<p class="error-message">❌ {status_info["error"]}</p>' if status_info.get("error") else ''}
             </div>
         """
         
         st.markdown(agent_card, unsafe_allow_html=True)
         
         # Отображаем график прогресса только если есть история и агент активен
-        if progress_history and status_info["status"] not in ["completed", "error", "idle"]:
+        if progress_history and status not in ["completed", "error", "idle"]:
             df = pd.DataFrame(progress_history)
             if not df.empty:
+                # Добавляем относительное время
+                if len(df) > 0:
+                    df['relative_time'] = df['time'] - df['time'].iloc[0]
+                    
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=df['time'],
+                    x=df['relative_time'],
                     y=df['progress'],
-                    mode='lines',
+                    mode='lines+markers',
                     name='Прогресс',
-                    line=dict(color='#00b4d8')
+                    line=dict(color='#00b4d8', width=2),
+                    marker=dict(size=4)
                 ))
                 fig.update_layout(
                     height=100,
@@ -476,8 +444,20 @@ def display_agent_status(agent: Any) -> None:
                     showlegend=False,
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
-                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                    xaxis=dict(
+                        showgrid=True,
+                        gridcolor='rgba(128,128,128,0.1)',
+                        zeroline=False,
+                        showticklabels=True,
+                        title='Время (с)'
+                    ),
+                    yaxis=dict(
+                        showgrid=True,
+                        gridcolor='rgba(128,128,128,0.1)',
+                        zeroline=False,
+                        showticklabels=True,
+                        range=[0, 1]
+                    )
                 )
                 st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
@@ -694,6 +674,34 @@ def display_ollama_settings() -> None:
         })
         settings.set_max_iterations(max_iterations)
 
+def display_validation_error(error_info: Dict[str, Any]) -> None:
+    """Отображает информацию об ошибке валидации."""
+    command_type = error_info.get("command_type", "unknown")
+    issues = error_info.get("issues", [])
+    suggestions = error_info.get("suggestions", [])
+    
+    error_html = f"""
+    <div class="validation-error">
+        <h4>
+            ❌ Ошибка валидации
+            <span class="command-type">{command_type}</span>
+        </h4>
+        
+        <ul class="validation-issues">
+            {"".join(f"<li>{issue}</li>" for issue in issues)}
+        </ul>
+        
+        <div class="validation-suggestions">
+            <h5>💡 Рекомендации:</h5>
+            <ul>
+                {"".join(f"<li>{suggestion}</li>" for suggestion in suggestions)}
+            </ul>
+        </div>
+    </div>
+    """
+    
+    st.markdown(error_html, unsafe_allow_html=True)
+
 def process_user_query(user_query: str) -> None:
     """Обрабатывает запрос пользователя."""
     try:
@@ -819,22 +827,39 @@ def execute_executor(instruction: str, executor: ExecutorAgent, ollama_opts: Dic
     log_chain("ExecutorAgent", "PROMPT", instruction)
     exec_text = ""
     placeholder_exec = st.empty()
-    ex_gen = executor.execute_instruction(
-        instruction=instruction,
-        vector_store=st.session_state.vector_store,
-        stream=True,
-        **ollama_opts
-    )
-    if isinstance(ex_gen, str):
-        exec_text = ex_gen
-        placeholder_exec.markdown(exec_text)
-    else:
-        for ck in ex_gen:
-            exec_text += ck
+    
+    try:
+        # Валидируем инструкцию
+        validation_result = executor._validate_instruction(instruction)
+        if not validation_result["is_valid"]:
+            display_validation_error(validation_result)
+            return f"Ошибка валидации: {', '.join(validation_result['issues'])}"
+        
+        # Выполняем инструкцию
+        ex_gen = executor.execute_instruction(
+            instruction=instruction,
+            vector_store=st.session_state.vector_store,
+            stream=True,
+            **ollama_opts
+        )
+        
+        if isinstance(ex_gen, str):
+            exec_text = ex_gen
             placeholder_exec.markdown(exec_text)
-            time.sleep(0.02)
-    log_chain("ExecutorAgent", "RESPONSE", exec_text)
-    return exec_text
+        else:
+            for ck in ex_gen:
+                exec_text += ck
+                placeholder_exec.markdown(exec_text)
+                time.sleep(0.02)
+                
+        log_chain("ExecutorAgent", "RESPONSE", exec_text)
+        return exec_text
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Ошибка при выполнении инструкции: {error_msg}")
+        st.error(f"Ошибка выполнения: {error_msg}")
+        return f"Ошибка выполнения: {error_msg}"
 
 def execute_critic(exec_text: str, critic: CriticAgent, ollama_opts: Dict[str, Any]) -> str:
     """Выполняет критику."""

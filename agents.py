@@ -77,16 +77,18 @@ class AgentState:
     def start_task(self, task: str, total_steps: int = 0) -> None:
         """Начинает новую задачу."""
         with self._lock:
-            # Не меняем статус при старте задачи
+            # Устанавливаем начальный статус если он IDLE
+            if self.status == AgentStatus.IDLE:
+                self.status = AgentStatus.PLANNING
             self.current_task = task
             self.error = None
             self.progress = 0.0
             self.start_time = time.time()
             self.end_time = None
-            self.metrics.steps_completed = 0
-            self.metrics.total_steps = total_steps
+            self.metrics = AgentMetrics(total_steps=total_steps)
             self._progress_history = []
             self._last_update = time.time()
+            self._update_progress_history()  # Добавляем начальную точку в историю
 
     def complete_task(self) -> None:
         """Завершает текущую задачу."""
@@ -838,15 +840,34 @@ class ExecutorAgent(BaseAgent):
             Результаты валидации
         """
         try:
+            # Проверяем базовые требования
+            if not instruction.strip():
+                return {
+                    "score": 0,
+                    "issues": ["Пустая инструкция"],
+                    "suggestions": ["Предоставьте непустую инструкцию"],
+                    "is_valid": False
+                }
+
+            # Определяем тип команды
+            command_type = self._determine_command_type(instruction)
+            
+            # Проверяем специфичные для типа требования
+            type_validation = self._validate_command_type(command_type, instruction)
+            if not type_validation["is_valid"]:
+                return type_validation
+
             prompt = f"""Проверьте инструкцию на корректность и безопасность:
 
 Инструкция: {instruction}
+Тип команды: {command_type}
 
 Проверьте:
-1. Корректность синтаксиса
+1. Корректность синтаксиса для типа {command_type}
 2. Безопасность выполнения
 3. Наличие необходимых параметров
 4. Возможные риски
+5. Соответствие формату команды
 
 Формат ответа:
 score: <число от 0 до 100>
@@ -855,15 +876,115 @@ suggestions: [<список предложений>]
 is_valid: <true/false>
 """
             response = self.client.generate(prompt, self.model_name)
-            return self._parse_validation_response(response)
+            validation_result = self._parse_validation_response(response)
+            
+            # Добавляем тип команды к результату
+            validation_result["command_type"] = command_type
+            
+            # Логируем результат валидации
+            if not validation_result["is_valid"]:
+                logger.warning(
+                    f"Ошибка валидации инструкции: {instruction}\n"
+                    f"Тип: {command_type}\n"
+                    f"Проблемы: {', '.join(validation_result['issues'])}"
+                )
+            
+            return validation_result
+            
         except Exception as e:
-            logger.error(f"Ошибка при валидации инструкции: {e}")
+            error_msg = str(e)
+            logger.error(f"Ошибка при валидации инструкции: {error_msg}")
             return {
                 "score": 0,
-                "issues": [f"Ошибка валидации: {str(e)}"],
-                "suggestions": [],
-                "is_valid": False
+                "issues": [f"Ошибка валидации: {error_msg}"],
+                "suggestions": ["Проверьте формат инструкции"],
+                "is_valid": False,
+                "command_type": "unknown"
             }
+
+    def _validate_command_type(self, command_type: str, instruction: str) -> Dict[str, Any]:
+        """Валидирует инструкцию для конкретного типа команды."""
+        validation_result = {
+            "score": 0,
+            "issues": [],
+            "suggestions": [],
+            "is_valid": False
+        }
+        
+        try:
+            if command_type == "ducksearch":
+                if ":" not in instruction:
+                    validation_result["issues"].append("Отсутствует разделитель ':'")
+                    validation_result["suggestions"].append("Используйте формат: ducksearch:запрос")
+                elif len(instruction.split(":", 1)[1].strip()) < 3:
+                    validation_result["issues"].append("Слишком короткий поисковый запрос")
+                    validation_result["suggestions"].append("Запрос должен содержать минимум 3 символа")
+                else:
+                    validation_result["is_valid"] = True
+                    validation_result["score"] = 100
+                    
+            elif command_type == "browser":
+                if ":" not in instruction:
+                    validation_result["issues"].append("Отсутствует разделитель ':'")
+                    validation_result["suggestions"].append("Используйте формат: browser:действие1;действие2")
+                elif not any(act.startswith(('url=', 'click=', 'type=', 'screenshot=')) 
+                            for act in instruction.split(":")[1].split(";")):
+                    validation_result["issues"].append("Отсутствуют валидные браузерные действия")
+                    validation_result["suggestions"].append(
+                        "Используйте: url=, click=, type=, screenshot="
+                    )
+                else:
+                    validation_result["is_valid"] = True
+                    validation_result["score"] = 100
+                    
+            elif command_type == "visual":
+                if ":" not in instruction:
+                    validation_result["issues"].append("Отсутствует разделитель ':'")
+                    validation_result["suggestions"].append("Используйте формат: visual:действие=путь")
+                elif not any(act.startswith(('analyze=', 'describe=', 'ocr=')) 
+                            for act in instruction.split(":")[1].split(";")):
+                    validation_result["issues"].append("Отсутствуют валидные визуальные действия")
+                    validation_result["suggestions"].append(
+                        "Используйте: analyze=, describe=, ocr="
+                    )
+                else:
+                    validation_result["is_valid"] = True
+                    validation_result["score"] = 100
+                    
+            elif command_type == "cmd":
+                if ":" not in instruction:
+                    validation_result["issues"].append("Отсутствует разделитель ':'")
+                    validation_result["suggestions"].append("Используйте формат: cmd:команда")
+                elif not self._is_safe_command(instruction.split(":", 1)[1].strip()):
+                    validation_result["issues"].append("Небезопасная команда")
+                    validation_result["suggestions"].append("Используйте только безопасные команды")
+                else:
+                    validation_result["is_valid"] = True
+                    validation_result["score"] = 100
+                    
+            elif command_type == "ls":
+                if ":" not in instruction:
+                    validation_result["issues"].append("Отсутствует разделитель ':'")
+                    validation_result["suggestions"].append("Используйте формат: ls:путь")
+                elif not self._is_safe_path(instruction.split(":", 1)[1].strip()):
+                    validation_result["issues"].append("Небезопасный путь")
+                    validation_result["suggestions"].append("Используйте только безопасные пути")
+                else:
+                    validation_result["is_valid"] = True
+                    validation_result["score"] = 100
+                    
+            else:
+                validation_result["is_valid"] = True
+                validation_result["score"] = 100
+                
+            return validation_result
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Ошибка при валидации типа команды {command_type}: {error_msg}")
+            validation_result["issues"].append(f"Ошибка валидации: {error_msg}")
+            validation_result["suggestions"].append("Проверьте формат команды")
+            return validation_result
     
     def _execute_command(self, instruction: str, vector_store: Optional[SimpleVectorStore] = None) -> Optional[str]:
         """Выполняет команду.
