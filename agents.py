@@ -787,34 +787,16 @@ class ExecutorAgent(BaseAgent):
             # Обновляем состояние
             self.update_state(AgentStatus.EXECUTING, "Выполнение инструкции")
             
-            # Валидируем инструкцию
-            validation_result = self._validate_instruction(instruction)
-            if not validation_result["is_valid"]:
-                self.update_state(AgentStatus.ERROR, "Ошибка валидации инструкции")
-                return f"Ошибка валидации: {', '.join(validation_result['issues'])}"
+            # Извлекаем команду из инструкции
+            command = self._extract_command(instruction)
+            if not command:
+                return "Ошибка: не удалось извлечь команду из инструкции"
             
             # Выполняем команду
-            result = self._execute_command(instruction, vector_store)
+            result = self._execute_command(command, vector_store)
             if not result:
                 self.update_state(AgentStatus.ERROR, "Пустой результат выполнения")
                 return "Ошибка: команда не вернула результат"
-            
-            # Валидируем результат
-            validation_result = self._validate_result(result)
-            if not validation_result["is_valid"]:
-                # Пытаемся улучшить результат
-                improved_result = self._improve_result(result, validation_result["issues"])
-                if improved_result:
-                    result = improved_result
-                else:
-                    self.update_state(AgentStatus.ERROR, "Ошибка валидации результата")
-                    return f"Ошибка валидации: {', '.join(validation_result['issues'])}"
-            
-            # Проверяем релевантность
-            relevance_result = self._check_result_relevance(result)
-            if not relevance_result["is_relevant"]:
-                self.update_state(AgentStatus.ERROR, "Результат не релевантен")
-                return f"Результат не релевантен: {', '.join(relevance_result['issues'])}"
             
             # Обновляем состояние
             self.update_state(AgentStatus.COMPLETED, "Инструкция выполнена")
@@ -825,337 +807,204 @@ class ExecutorAgent(BaseAgent):
             return result
             
         except Exception as e:
-            error_msg = str(e) if not isinstance(e, AgentStatus) else e.value
+            error_msg = str(e)
             self.update_state(AgentStatus.ERROR, f"Ошибка выполнения: {error_msg}")
             logger.error(f"Ошибка при выполнении инструкции: {error_msg}")
             return f"Ошибка выполнения: {error_msg}"
-    
-    def _validate_instruction(self, instruction: str) -> Dict[str, Any]:
-        """Валидирует инструкцию.
-        
-        Args:
-            instruction: Инструкция для валидации
-            
-        Returns:
-            Результаты валидации
-        """
+
+    def _extract_command(self, instruction: str) -> Optional[str]:
+        """Извлекает команду из инструкции."""
         try:
-            # Проверяем базовые требования
-            if not instruction.strip():
-                return {
-                    "score": 0,
-                    "issues": ["Пустая инструкция"],
-                    "suggestions": ["Предоставьте непустую инструкцию"],
-                    "is_valid": False,
-                    "command_type": "unknown"
-                }
-
-            # Определяем тип команды
-            command_type = self._determine_command_type(instruction)
+            # Очищаем инструкцию
+            instruction = instruction.strip()
             
-            # Проверяем специфичные для типа требования
-            type_validation = self._validate_command_type(command_type, instruction)
+            # Ищем команды в тексте
+            command_patterns = [
+                (r'ducksearch:([^\n]+)', lambda m: f"ducksearch:{m.group(1).strip()}"),
+                (r'browser:(url=[^;]+(?:;(?:click|type|screenshot)=[^;]+)*)', lambda m: f"browser:{m.group(1)}"),
+                (r'visual:((?:analyze|describe|ocr)=[^;]+(?:;(?:analyze|describe|ocr)=[^;]+)*)', lambda m: f"visual:{m.group(1)}"),
+                (r'cmd:([^\n]+)', lambda m: f"cmd:{m.group(1).strip()}"),
+                (r'ls:([^\n]+)', lambda m: f"ls:{m.group(1).strip()}")
+            ]
             
-            # Добавляем тип команды к результату
-            type_validation["command_type"] = command_type
+            for pattern, formatter in command_patterns:
+                match = re.search(pattern, instruction, re.IGNORECASE)
+                if match:
+                    return formatter(match)
             
-            # Если валидация типа не прошла, возвращаем результат
-            if not type_validation["is_valid"]:
-                logger.warning(
-                    f"Ошибка валидации инструкции: {instruction}\n"
-                    f"Тип: {command_type}\n"
-                    f"Проблемы: {', '.join(type_validation['issues'])}"
-                )
-                return type_validation
-
-            # Проверяем общие требования
-            general_validation = self._validate_general_requirements(instruction)
-            if not general_validation["is_valid"]:
-                general_validation["command_type"] = command_type
-                return general_validation
-
-            return {
-                "score": 100,
-                "issues": [],
-                "suggestions": [],
-                "is_valid": True,
-                "command_type": command_type
+            # Если не нашли точного совпадения, ищем ключевые слова
+            keywords = {
+                'ducksearch': 'поиск',
+                'browser': 'браузер',
+                'visual': 'визуальный',
+                'cmd': 'команда',
+                'ls': 'директория'
             }
             
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Ошибка при валидации инструкции: {error_msg}")
-            return {
-                "score": 0,
-                "issues": [f"Ошибка валидации: {error_msg}"],
-                "suggestions": ["Проверьте формат инструкции"],
-                "is_valid": False,
-                "command_type": "unknown"
-            }
-
-    def _validate_general_requirements(self, instruction: str) -> Dict[str, Any]:
-        """Проверяет общие требования к инструкции."""
-        validation_result = {
-            "score": 0,
-            "issues": [],
-            "suggestions": [],
-            "is_valid": False
-        }
-
-        # Проверяем длину
-        if len(instruction) > 1000:
-            validation_result["issues"].append("Инструкция слишком длинная")
-            validation_result["suggestions"].append("Сократите инструкцию до 1000 символов")
-            return validation_result
-
-        # Проверяем наличие спецсимволов
-        if re.search(r'[<>|&;$]', instruction):
-            validation_result["issues"].append("Обнаружены потенциально опасные символы")
-            validation_result["suggestions"].append("Удалите специальные символы из инструкции")
-            return validation_result
-
-        validation_result["is_valid"] = True
-        validation_result["score"] = 100
-        return validation_result
-
-    def _validate_command_type(self, command_type: str, instruction: str) -> Dict[str, Any]:
-        """Валидирует инструкцию для конкретного типа команды."""
-        validation_result = {
-            "score": 0,
-            "issues": [],
-            "suggestions": [],
-            "is_valid": False,
-            "command_type": command_type
-        }
-        
-        try:
-            if command_type == "ducksearch":
-                if ":" not in instruction:
-                    validation_result["issues"].append("Отсутствует разделитель ':'")
-                    validation_result["suggestions"].append("Используйте формат: ducksearch:запрос")
-                elif len(instruction.split(":", 1)[1].strip()) < 3:
-                    validation_result["issues"].append("Слишком короткий поисковый запрос")
-                    validation_result["suggestions"].append("Запрос должен содержать минимум 3 символа")
-                else:
-                    validation_result["is_valid"] = True
-                    validation_result["score"] = 100
-                    
-            elif command_type == "browser":
-                if ":" not in instruction:
-                    validation_result["issues"].append("Отсутствует разделитель ':'")
-                    validation_result["suggestions"].append("Используйте формат: browser:действие1;действие2")
-                elif not any(act.startswith(('url=', 'click=', 'type=', 'screenshot=')) 
-                            for act in instruction.split(":")[1].split(";")):
-                    validation_result["issues"].append("Отсутствуют валидные браузерные действия")
-                    validation_result["suggestions"].append(
-                        "Используйте: url=, click=, type=, screenshot="
-                    )
-                else:
-                    validation_result["is_valid"] = True
-                    validation_result["score"] = 100
-                    
-            elif command_type == "visual":
-                if ":" not in instruction:
-                    validation_result["issues"].append("Отсутствует разделитель ':'")
-                    validation_result["suggestions"].append("Используйте формат: visual:действие=путь")
-                elif not any(act.startswith(('analyze=', 'describe=', 'ocr=')) 
-                            for act in instruction.split(":")[1].split(";")):
-                    validation_result["issues"].append("Отсутствуют валидные визуальные действия")
-                    validation_result["suggestions"].append(
-                        "Используйте: analyze=, describe=, ocr="
-                    )
-                else:
-                    validation_result["is_valid"] = True
-                    validation_result["score"] = 100
-                    
-            elif command_type == "cmd":
-                if ":" not in instruction:
-                    validation_result["issues"].append("Отсутствует разделитель ':'")
-                    validation_result["suggestions"].append("Используйте формат: cmd:команда")
-                elif not self._is_safe_command(instruction.split(":", 1)[1].strip()):
-                    validation_result["issues"].append("Небезопасная команда")
-                    validation_result["suggestions"].append("Используйте только безопасные команды")
-                else:
-                    validation_result["is_valid"] = True
-                    validation_result["score"] = 100
-                    
-            elif command_type == "ls":
-                if ":" not in instruction:
-                    validation_result["issues"].append("Отсутствует разделитель ':'")
-                    validation_result["suggestions"].append("Используйте формат: ls:путь")
-                elif not self._is_safe_path(instruction.split(":", 1)[1].strip()):
-                    validation_result["issues"].append("Небезопасный путь")
-                    validation_result["suggestions"].append("Используйте только безопасные пути")
-                else:
-                    validation_result["is_valid"] = True
-                    validation_result["score"] = 100
-                    
-            else:
-                validation_result["is_valid"] = True
-                validation_result["score"] = 100
-                
-            return validation_result
+            for cmd, keyword in keywords.items():
+                if any(word in instruction.lower() for word in [cmd, keyword]):
+                    # Очищаем текст от лишнего и формируем команду
+                    text = re.sub(r'^.*?(?:' + cmd + '|' + keyword + r')\s*:?\s*', '', instruction, flags=re.IGNORECASE)
+                    return f"{cmd}:{text.strip()}"
+            
+            # Если не нашли команду, возвращаем как поисковый запрос
+            return f"ducksearch:{instruction}"
             
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Ошибка при валидации типа команды {command_type}: {error_msg}")
-            validation_result["issues"].append(f"Ошибка валидации: {error_msg}")
-            validation_result["suggestions"].append("Проверьте формат команды")
-            return validation_result
-    
-    def _execute_command(self, instruction: str, vector_store: Optional[SimpleVectorStore] = None) -> Optional[str]:
-        """Выполняет команду.
-        
-        Args:
-            instruction: Инструкция для выполнения
-            vector_store: Векторное хранилище для поиска
-            
-        Returns:
-            Результат выполнения или None в случае ошибки
-        """
+            logger.error(f"Ошибка при извлечении команды: {e}")
+            return None
+
+    def _execute_command(self, command: str, vector_store: Optional[SimpleVectorStore] = None) -> Optional[str]:
+        """Выполняет команду."""
         try:
             # Определяем тип команды
-            command_type = self._determine_command_type(instruction)
+            command_type = command.split(':', 1)[0].lower() if ':' in command else 'ducksearch'
+            command_content = command.split(':', 1)[1] if ':' in command else command
             
             # Выполняем соответствующую команду
             if command_type == "ducksearch":
-                return self._execute_ducksearch(instruction)
-            elif command_type == "search":
-                if vector_store:
-                    # Если есть векторное хранилище, сначала ищем локально
-                    local_results = vector_store.search(instruction, k=3)
-                    if local_results:
-                        return self._format_vector_store_results(local_results)
-                return self._execute_search(instruction)
-            elif command_type == "cmd":
-                return self._execute_shell_command(instruction)
-            elif command_type == "ls":
-                return self._execute_list_directory(instruction)
+                return self._execute_ducksearch(command_content)
             elif command_type == "browser":
-                return self._execute_browser_actions(instruction)
+                return self._execute_browser_actions(command_content)
             elif command_type == "visual":
-                return self._execute_visual_actions(instruction)
+                return self._execute_visual_actions(command_content)
+            elif command_type == "cmd":
+                return self._execute_shell_command(command_content)
+            elif command_type == "ls":
+                return self._execute_list_directory(command_content)
             else:
-                return self._execute_general_command(instruction)
+                return self._execute_ducksearch(command)  # Fallback to search
                 
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды: {e}")
-            return None
-    
-    def _determine_command_type(self, instruction: str) -> str:
-        """Определяет тип команды.
-        
-        Args:
-            instruction: Инструкция для анализа
-            
-        Returns:
-            Тип команды
-        """
-        instruction = instruction.lower().strip()
-        
-        # Проверяем префиксы команд
-        if instruction.startswith("ducksearch:"):
-            return "ducksearch"
-        elif instruction.startswith("browser:"):
-            return "browser"
-        elif instruction.startswith("visual:"):
-            return "visual"
-        elif instruction.startswith("cmd:"):
-            return "cmd"
-        elif instruction.startswith("ls:"):
-            return "ls"
-            
-        # Если префикс не найден, проверяем по ключевым словам
-        if "ducksearch" in instruction or "поиск" in instruction:
-            return "ducksearch"
-        elif "browser" in instruction or "браузер" in instruction:
-            return "browser"
-        elif "visual" in instruction or "визуальный" in instruction:
-            return "visual"
-        elif "cmd" in instruction or "команда" in instruction:
-            return "cmd"
-        elif "ls" in instruction or "директория" in instruction:
-            return "ls"
-        else:
-            return "general"
+            return f"Ошибка выполнения: {str(e)}"
 
-    def _execute_ducksearch(self, instruction: str) -> Optional[str]:
-        """Выполняет поиск через DuckDuckGo.
-        
-        Args:
-            instruction: Инструкция с поисковым запросом
-            
-        Returns:
-            Результаты поиска или None в случае ошибки
-        """
+    def _execute_ducksearch(self, query: str) -> str:
+        """Выполняет поиск через DuckDuckGo с фолбэком на браузерный поиск."""
         try:
-            # Извлекаем поисковый запрос
-            query = instruction.replace("ducksearch", "").strip()
+            # Проверяем и очищаем запрос
+            query = query.strip()
             if not query:
                 return "Ошибка: пустой поисковый запрос"
             
-            # Выполняем поиск
-            results = self._perform_ducksearch(query)
-            if not results:
-                return "Поиск не дал результатов"
-            
-            # Агрегируем результаты
-            return self._aggregate_search_results(results)
+            # Сначала пробуем через DuckDuckGo API
+            results = self._try_ddg_search(query)
+            if results and not results.startswith("Ошибка"):
+                return results
+                
+            # Если DuckDuckGo не сработал, используем браузерный поиск
+            logger.info("DuckDuckGo поиск не удался, переключаемся на браузерный поиск")
+            return self._try_browser_search(query)
             
         except Exception as e:
-            logger.error(f"Ошибка при выполнении DuckDuckGo поиска: {e}")
-            return None
-    
-    def _perform_ducksearch(self, query: str) -> List[Dict[str, Any]]:
-        """Выполняет поисковый запрос через DuckDuckGo."""
+            logger.error(f"Ошибка при выполнении поиска: {e}")
+            return f"Ошибка поиска: {str(e)}"
+
+    def _try_ddg_search(self, query: str) -> str:
+        """Пытается выполнить поиск через DuckDuckGo API."""
         try:
             from duckduckgo_search import DDGS
-            with DDGS() as ddgs:
-                results = list(ddgs.text(
-                    query,
-                    max_results=15,
-                    timeout=30
-                ))
-                if not results:
-                    return []
-                
-                # Форматируем результаты
-                formatted_results = []
-                for result in results:
-                    formatted_results.append({
-                        "title": result.get("title", ""),
-                        "link": result.get("link", ""),
-                        "snippet": result.get("body", "")
-                    })
-                return formatted_results
-        except ImportError:
-            logger.error("Пакет duckduckgo-search не установлен")
-            return []
-        except Exception as e:
-            logger.error(f"Ошибка при выполнении DuckDuckGo запроса: {e}")
-            return []
-    
-    def _aggregate_search_results(self, results: List[Dict[str, Any]]) -> str:
-        """Агрегирует результаты поиска в читаемый формат.
-        
-        Args:
-            results: Список результатов поиска
+            from duckduckgo_search.exceptions import DuckDuckGoSearchException
+            import time
             
-        Returns:
-            Отформатированный текст результатов
-        """
-        try:
-            formatted_results = []
-            for i, result in enumerate(results, 1):
-                formatted_results.append(
-                    f"{i}. {result['title']}\n"
-                    f"   {result['link']}\n"
-                    f"   {result['snippet']}\n"
-                )
-            return "\n".join(formatted_results)
+            max_retries = 3
+            base_delay = 2
+            
+            for attempt in range(max_retries):
+                try:
+                    with DDGS() as ddgs:
+                        results = list(ddgs.text(
+                            query,
+                            max_results=5,
+                            region='ru-ru'
+                        ))
+                        
+                        if not results:
+                            return "Поиск не дал результатов"
+                        
+                        formatted_results = []
+                        for i, result in enumerate(results, 1):
+                            formatted_results.append(
+                                f"{i}. {result.get('title', '')}\n"
+                                f"   URL: {result.get('link', '')}\n"
+                                f"   {result.get('body', '')}\n"
+                            )
+                        
+                        return "\n".join(formatted_results)
+                        
+                except DuckDuckGoSearchException as ddg_error:
+                    if "Ratelimit" in str(ddg_error):
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            logger.warning(f"Rate limit достигнут, ожидание {delay} секунд...")
+                            time.sleep(delay)
+                            continue
+                    logger.error(f"Ошибка DuckDuckGo поиска: {ddg_error}")
+                    return f"Ошибка: {str(ddg_error)}"
+                    
+        except ImportError:
+            return "Ошибка: пакет duckduckgo-search не установлен"
         except Exception as e:
-            logger.error(f"Ошибка при агрегации результатов поиска: {e}")
-            return "Ошибка при форматировании результатов"
+            logger.error(f"Ошибка при DuckDuckGo поиске: {e}")
+            return f"Ошибка поиска: {str(e)}"
+
+    def _try_browser_search(self, query: str) -> str:
+        """Выполняет поиск через браузер."""
+        try:
+            if not self._browser:
+                self._browser = PlaywrightBrowser(headless=True, timeout=30000)
+                self._browser.launch()
+            
+            # Формируем URL для поиска
+            search_url = f"https://duckduckgo.com/?q={query}&kl=ru-ru"
+            
+            # Переходим на страницу поиска
+            self._browser.goto(search_url)
+            time.sleep(2)  # Даем время для загрузки результатов
+            
+            # Собираем результаты
+            results = []
+            
+            # Ищем элементы результатов поиска
+            selectors = {
+                'result': '.result',
+                'title': '.result__title',
+                'link': '.result__url',
+                'snippet': '.result__snippet'
+            }
+            
+            # Получаем результаты
+            for i in range(5):  # Берем первые 5 результатов
+                try:
+                    title = self._browser.page.query_selector(f"{selectors['title']}:nth-child({i+1})")
+                    link = self._browser.page.query_selector(f"{selectors['link']}:nth-child({i+1})")
+                    snippet = self._browser.page.query_selector(f"{selectors['snippet']}:nth-child({i+1})")
+                    
+                    if title and link and snippet:
+                        results.append(
+                            f"{i+1}. {title.inner_text()}\n"
+                            f"   URL: {link.get_attribute('href')}\n"
+                            f"   {snippet.inner_text()}\n"
+                        )
+                except Exception as e:
+                    logger.warning(f"Не удалось получить результат {i+1}: {e}")
+                    continue
+            
+            if not results:
+                return "Поиск через браузер не дал результатов"
+            
+            return "\n".join(results)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при браузерном поиске: {e}")
+            return f"Ошибка браузерного поиска: {str(e)}"
+        finally:
+            if self._browser:
+                try:
+                    self._browser.close()
+                except Exception as e:
+                    logger.error(f"Ошибка при закрытии браузера: {e}")
+                self._browser = None
     
     def _execute_search(self, instruction: str) -> Optional[str]:
         """Выполняет общий поиск.
@@ -2724,73 +2573,58 @@ class ArbiterAgent(BaseAgent):
             return "Не удалось сгенерировать инструкции"
 
     def _validate_instructions(self, instructions: str) -> bool:
-        """Проверяет качество инструкций.
-        
-        Args:
-            instructions: Текст инструкций
-            
-        Returns:
-            True если инструкции валидны
-        """
+        """Проверяет качество инструкций."""
         if not instructions:
             return False
             
-        validation_prompt = f"""
-        Проверь качество следующих инструкций:
-        
-        {instructions}
-        
-        Проверь:
-        1. Четкость формулировок
-        2. Полноту охвата
-        3. Реалистичность выполнения
-        4. Измеримость результатов
-        5. Логическую последовательность
-        
-        Ответь true/false
-        """
-        
         try:
-            response = self.client.generate(
-                prompt=validation_prompt,
-                model=self.model_name,
-                stream=False
-            )
-            return response.lower().strip() == "true"
+            # Проверяем базовые требования
+            if len(instructions.strip()) < 10:
+                logger.warning("Инструкции слишком короткие")
+                return False
+            
+            # Проверяем наличие конкретных шагов
+            if not any(word in instructions.lower() for word in ['шаг', 'действие', 'выполнить', 'улучшить']):
+                logger.warning("Инструкции не содержат конкретных шагов")
+                return False
+            
+            # Проверяем структуру
+            if not re.search(r'\d+\.|\-|\*', instructions):
+                logger.warning("Инструкции не имеют структурированного формата")
+                return False
+            
+            return True
+            
         except Exception as e:
             logger.error(f"Ошибка при валидации инструкций: {e}")
             return False
 
     def _improve_instructions(self, instructions: str) -> str:
-        """Улучшает качество инструкций.
-        
-        Args:
-            instructions: Текст инструкций
-            
-        Returns:
-            Улучшенные инструкции
-        """
-        improvement_prompt = f"""
-        Улучши следующие инструкции:
-        
-        {instructions}
-        
-        Требования к улучшению:
-        1. Добавь конкретные метрики
-        2. Уточни формулировки
-        3. Добавь промежуточные шаги
-        4. Установи временные рамки
-        5. Добавь критерии проверки
-        
-        Предоставь улучшенную версию инструкций.
-        """
-        
+        """Улучшает качество инструкций."""
         try:
-            return self.client.generate(
+            improvement_prompt = f"""
+            Улучшите следующие инструкции:
+            
+            {instructions}
+            
+            Требования к улучшению:
+            1. Добавьте конкретные шаги
+            2. Сделайте инструкции более четкими
+            3. Добавьте примеры где это необходимо
+            4. Используйте структурированный формат
+            5. Добавьте критерии проверки
+            
+            Предоставьте улучшенную версию инструкций.
+            """
+            
+            improved = self.client.generate(
                 prompt=improvement_prompt,
                 model=self.model_name,
                 stream=False
             )
+            
+            return improved if improved else instructions
+            
         except Exception as e:
             logger.error(f"Ошибка при улучшении инструкций: {e}")
             return instructions

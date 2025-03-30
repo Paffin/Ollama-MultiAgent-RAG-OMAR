@@ -228,65 +228,6 @@ CSS_STYLES = """
     background: rgba(220, 53, 69, 0.1);
     border-radius: 4px;
 }
-
-.validation-error {
-    background: rgba(220, 53, 69, 0.1);
-    border: 1px solid var(--error-color);
-    border-radius: 8px;
-    padding: 15px;
-    margin: 10px 0;
-}
-
-.validation-error h4 {
-    color: var(--error-color);
-    margin: 0 0 10px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.validation-issues {
-    margin: 10px 0;
-    padding-left: 20px;
-}
-
-.validation-issues li {
-    color: rgba(255, 255, 255, 0.8);
-    margin: 5px 0;
-}
-
-.validation-suggestions {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    padding: 10px;
-    margin-top: 10px;
-}
-
-.validation-suggestions h5 {
-    color: rgba(255, 255, 255, 0.9);
-    margin: 0 0 8px 0;
-    font-size: 0.9em;
-}
-
-.validation-suggestions ul {
-    margin: 0;
-    padding-left: 20px;
-}
-
-.validation-suggestions li {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.85em;
-}
-
-.command-type {
-    display: inline-block;
-    padding: 2px 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    font-size: 0.8em;
-    color: rgba(255, 255, 255, 0.7);
-    margin-left: 8px;
-}
 </style>
 """
 
@@ -830,12 +771,6 @@ def execute_executor(instruction: str, executor: ExecutorAgent, ollama_opts: Dic
     placeholder_exec = st.empty()
     
     try:
-        # Валидируем инструкцию
-        validation_result = executor._validate_instruction(instruction)
-        if not validation_result["is_valid"]:
-            display_validation_error(validation_result)
-            return f"Ошибка валидации: {', '.join(validation_result['issues'])}"
-        
         # Выполняем инструкцию
         ex_gen = executor.execute_instruction(
             instruction=instruction,
