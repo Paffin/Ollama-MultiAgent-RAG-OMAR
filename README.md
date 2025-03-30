@@ -11,6 +11,220 @@
 - **Многократные итерации до улучшения результата** – циклы типа Executor → Critic → Praise → Arbiter для доработки ответа.
 - **Интерактивный веб-интерфейс на базе Streamlit** – удобное управление настройками агентов, параметрами генерации и загрузкой документов.
 
+## Расширенные примеры использования
+
+### 1. Комплексный анализ веб-страницы с визуальным анализом:
+```python
+query = """
+browser:url=https://example.com;
+screenshot=page.png;
+visual:analyze=page.png;
+visual:ocr=page.png;
+ducksearch:site:example.com latest news
+"""
+```
+
+### 2. Работа с локальными документами и поиск:
+```python
+# Загрузка и индексация документов
+docs = [
+    "data/documents/doc1.txt",
+    "data/documents/doc2.pdf"
+]
+vector_store.add_documents(docs)
+
+# Комплексный поиск
+query = """
+# Поиск в локальных документах
+найти информацию о мультиагентных системах;
+
+# Поиск в интернете для дополнения
+ducksearch:latest research multiagent systems 2024;
+
+# Сохранение результатов
+browser:url={результат поиска};
+screenshot=research.png;
+visual:analyze=research.png
+"""
+```
+
+### 3. Анализ изображений с распознаванием текста:
+```python
+query = """
+# Анализ нескольких изображений
+visual:analyze=image1.png;describe=image2.jpg;
+
+# Распознавание текста
+visual:ocr=document.png;
+
+# Поиск по распознанному тексту
+ducksearch:{распознанный текст}
+"""
+```
+
+### 4. Работа с системными командами и файлами:
+```python
+query = """
+# Просмотр директории
+ls:data/documents;
+
+# Выполнение команды
+cmd:python process_data.py;
+
+# Анализ результатов
+visual:analyze=output.png
+"""
+```
+
+### 5. Итеративное улучшение результатов:
+```python
+# Первая итерация
+result = executor.execute_instruction("найти информацию о Python")
+critique = critic.criticize(result)
+praise = praise_agent.praise(result)
+
+# Улучшение на основе обратной связи
+improved = arbiter.produce_rework_instruction(result, critique, praise)
+final_result = executor.execute_instruction(improved)
+```
+
+## Расширенные функции
+
+### 1. Управление состоянием агентов:
+```python
+# Отслеживание прогресса
+agent.state.update_progress(0.5, AgentStatus.EXECUTING)
+agent.state.increment_steps(1)
+
+# Обработка ошибок
+try:
+    agent.execute_task()
+except Exception as e:
+    agent.state.set_error(str(e))
+```
+
+### 2. Настройка параметров генерации:
+```python
+# Конфигурация для разных задач
+generation_params = {
+    'creative': {
+        'temperature': 0.8,
+        'top_p': 0.9
+    },
+    'precise': {
+        'temperature': 0.2,
+        'top_p': 0.1
+    }
+}
+
+# Применение параметров
+result = agent.generate(prompt, **generation_params['creative'])
+```
+
+### 3. Работа с векторным хранилищем:
+```python
+# Добавление документов с метаданными
+docs = ["текст1", "текст2"]
+metadata = [
+    {"source": "file1.txt", "date": "2024-03-30"},
+    {"source": "file2.txt", "date": "2024-03-30"}
+]
+vector_store.add_documents(docs, metadata)
+
+# Поиск с фильтрацией
+results = vector_store.search(
+    query="Python",
+    k=5,
+    metadata_filter={"date": "2024-03-30"}
+)
+```
+
+### 4. Визуальный анализ с настройками:
+```python
+# Анализ изображения с разными моделями
+result = llava_analyze_screenshot_via_ollama_llava(
+    path="image.png",
+    prompt="Опишите изображение подробно",
+    model="ollama/llava:13b"
+)
+
+# Распознавание текста с параметрами
+result = llava_analyze_screenshot_via_ollama_llava(
+    path="document.png",
+    prompt="Извлеките весь текст",
+    model="ollama/llava:13b-instruct"
+)
+```
+
+### 5. Браузерная автоматизация:
+```python
+# Сложные браузерные сценарии
+browser_actions = """
+browser:url=https://example.com;
+click=#login-button;
+type=#username:user@example.com;
+type=#password:password;
+click=#submit;
+screenshot=dashboard.png;
+visual:analyze=dashboard.png
+"""
+```
+
+## Мониторинг и отладка
+
+1. Логирование:
+```python
+logger.info("Начало выполнения задачи")
+logger.debug(f"Параметры: {params}")
+logger.error(f"Ошибка: {error}")
+```
+
+2. Метрики производительности:
+```python
+metrics = agent.state.get_metrics()
+print(f"Токены: {metrics['tokens']}")
+print(f"API вызовы: {metrics['api_calls']}")
+print(f"Время выполнения: {metrics['processing_time']}")
+```
+
+3. История выполнения:
+```python
+history = agent.state.get_progress_history()
+for point in history:
+    print(f"Время: {point['time']}")
+    print(f"Статус: {point['status']}")
+    print(f"Прогресс: {point['progress']}")
+```
+
+## Обработка ошибок
+
+1. Таймауты:
+```python
+try:
+    with timeout(30):  # 30 секунд
+        result = agent.execute_task()
+except TimeoutError:
+    logger.error("Превышено время выполнения")
+```
+
+2. Повторные попытки:
+```python
+@retry(max_attempts=3, delay=2)
+def execute_with_retry():
+    return agent.execute_task()
+```
+
+3. Валидация:
+```python
+def validate_command(command: str) -> bool:
+    patterns = {
+        'ducksearch': r'^ducksearch:.+$',
+        'browser': r'^browser:url=https?://.+$',
+        'visual': r'^visual:(analyze|describe|ocr)=.+\.(png|jpg|jpeg)$'
+    }
+    return any(re.match(pattern, command) for pattern in patterns.values())
+```
+
 ---
 
 ## Функциональные возможности

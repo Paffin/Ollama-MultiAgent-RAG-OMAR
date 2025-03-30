@@ -1,10 +1,10 @@
 {
     "models": {
-        "planner": "gemma3:4b",
-        "executor": "gemma3:4b",
-        "critic": "gemma3:4b",
-        "praise": "gemma3:4b",
-        "arbiter": "gemma3:4b"
+        "planner": "qwen2.5:14b",
+        "executor": "qwen2.5:14b",
+        "critic": "qwen2.5:14b",
+        "praise": "qwen2.5:14b",
+        "arbiter": "qwen2.5:14b"
     },
     "ollama": {
         "temperature": 0.7,

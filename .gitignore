@@ -1,38 +1,127 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-*.egg
-*.pyd
+*$py.class
 *.so
-*.dll
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Environments
+# Virtual Environment
 venv/
+env/
+ENV/
 .env
-.venv/
-ipynb_checkpoints/
+.venv
+env.bak/
+venv.bak/
 
-# Streamlit cache
-.streamlit/
-*.streamlit
-
-# OS-specific
-.DS_Store
-Thumbs.db
-
-# Logs or temporary
-*.log
-*.temp
-*.tmp
+# IDE
+.idea/
+.vscode/
 *.swp
 *.swo
+.project
+.pydevproject
+.settings/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Project specific
+# Vector store files
+*.faiss
+*.index
+vector_store/
+embeddings/
+
+# Model files and cache
+models/
+.cache/
+*.gguf
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Browser automation
+.playwright/
+playwright-log.txt
+**/test-results/
+**/playwright-report/
+**/playwright/.cache/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+screenshots/
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+logs/
+log/
+
+# Data files
+data/
+*.csv
+*.json
+*.jsonl
+*.txt
+!requirements.txt
+!README.md
+
+# Environment variables and secrets
+.env
+.env.*
+*.key
+secrets/
+
+# Operating System
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Ollama specific
+ollama/
+.ollama/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
 *.bak
 
-# IDE settings
-.vscode/
-.idea/
-*.iml
+# Documentation
+docs/_build/
+site/
 
-# Any custom folder to ignore
-ignor/
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover 

@@ -63,6 +63,7 @@ class AgentState:
     """Состояние агента с отслеживанием прогресса и метрик."""
     
     def __init__(self):
+        """Инициализирует состояние агента."""
         self.status = AgentStatus.IDLE
         self.current_task = ""
         self.error = None
@@ -72,15 +73,31 @@ class AgentState:
         self.metrics = AgentMetrics()
         self._last_update = time.time()
         self._update_interval = 0.1
-        self._progress_history: List[ProgressPoint] = []
+        self._progress_history = []
         self._lock = threading.Lock()
+        self._status_transitions = {
+            AgentStatus.IDLE: [AgentStatus.PLANNING, AgentStatus.EXECUTING, 
+                             AgentStatus.CRITICIZING, AgentStatus.PRAISING, 
+                             AgentStatus.ARBITRATING],
+            AgentStatus.PLANNING: [AgentStatus.COMPLETED, AgentStatus.ERROR],
+            AgentStatus.EXECUTING: [AgentStatus.COMPLETED, AgentStatus.ERROR],
+            AgentStatus.CRITICIZING: [AgentStatus.COMPLETED, AgentStatus.ERROR],
+            AgentStatus.PRAISING: [AgentStatus.COMPLETED, AgentStatus.ERROR],
+            AgentStatus.ARBITRATING: [AgentStatus.COMPLETED, AgentStatus.ERROR],
+            AgentStatus.COMPLETED: [AgentStatus.IDLE],
+            AgentStatus.ERROR: [AgentStatus.IDLE]
+        }
 
     def start_task(self, task: str, total_steps: int = 0) -> None:
         """Начинает новую задачу."""
         with self._lock:
-            # Устанавливаем начальный статус если он IDLE
-            if self.status == AgentStatus.IDLE:
-                self.status = AgentStatus.PLANNING
+            if not task:
+                raise ValueError("Задача не может быть пустой")
+                
+            # Проверяем возможность перехода
+            if self.status != AgentStatus.IDLE:
+                raise ValueError(f"Невозможно начать новую задачу в статусе {self.status}")
+                
             self.current_task = task
             self.error = None
             self.progress = 0.0
@@ -89,12 +106,21 @@ class AgentState:
             self.metrics = AgentMetrics(total_steps=total_steps)
             self._progress_history = []
             self._last_update = time.time()
-            self._update_progress_history()  # Добавляем начальную точку в историю
+            self._update_progress_history()
 
     def complete_task(self) -> None:
         """Завершает текущую задачу."""
         with self._lock:
-            self.status = AgentStatus.COMPLETED
+            if self.status == AgentStatus.COMPLETED:
+                return
+                
+            if self.status == AgentStatus.ERROR:
+                raise ValueError("Невозможно завершить задачу с ошибкой")
+                
+            if self.status == AgentStatus.IDLE:
+                raise ValueError("Невозможно завершить незапущенную задачу")
+                
+            self._transition_to(AgentStatus.COMPLETED)
             self.progress = 1.0
             self.end_time = time.time()
             self.metrics.processing_time = self.end_time - self.start_time
@@ -103,15 +129,39 @@ class AgentState:
     def set_error(self, error: str) -> None:
         """Устанавливает ошибку."""
         with self._lock:
-            self.status = AgentStatus.ERROR
+            if not error:
+                raise ValueError("Описание ошибки не может быть пустым")
+                
+            self._transition_to(AgentStatus.ERROR)
             self.error = error
             self.end_time = time.time()
             self.metrics.processing_time = self.end_time - self.start_time
             self._update_progress_history()
 
+    def update_status(self, new_status: AgentStatus) -> None:
+        """Обновляет статус агента."""
+        with self._lock:
+            if not isinstance(new_status, AgentStatus):
+                raise ValueError("Некорректный тип статуса")
+                
+            self._transition_to(new_status)
+            self._update_progress_history()
+
+    def _transition_to(self, new_status: AgentStatus) -> None:
+        """Выполняет переход в новый статус с проверкой."""
+        if new_status not in self._status_transitions[self.status]:
+            raise ValueError(
+                f"Недопустимый переход из {self.status} в {new_status}. "
+                f"Разрешенные переходы: {self._status_transitions[self.status]}"
+            )
+        self.status = new_status
+
     def update_metrics(self, tokens: int = 0, api_calls: int = 0, memory_usage: int = 0) -> None:
         """Обновляет метрики агента."""
         with self._lock:
+            if tokens < 0 or api_calls < 0 or memory_usage < 0:
+                raise ValueError("Метрики не могут быть отрицательными")
+                
             self.metrics.tokens += tokens
             self.metrics.api_calls += api_calls
             self.metrics.memory_usage = max(self.metrics.memory_usage, memory_usage)
@@ -123,28 +173,44 @@ class AgentState:
             return
             
         with self._lock:
-            self.progress = max(0.0, min(1.0, progress))
+            if not 0 <= progress <= 1:
+                raise ValueError("Прогресс должен быть в диапазоне [0, 1]")
+                
+            self.progress = progress
             if status:
-                self.status = status
+                self._transition_to(status)
             self._last_update = current_time
             self._update_progress_history()
 
     def increment_steps(self, count: int = 1) -> None:
         """Увеличивает счетчик выполненных шагов."""
         with self._lock:
+            if count < 1:
+                raise ValueError("Количество шагов должно быть положительным")
+                
             self.metrics.steps_completed += count
             if self.metrics.total_steps > 0:
-                self.progress = self.metrics.steps_completed / self.metrics.total_steps
+                self.progress = min(1.0, self.metrics.steps_completed / self.metrics.total_steps)
                 self._update_progress_history()
 
     def _update_progress_history(self) -> None:
         """Обновляет историю прогресса."""
         current_time = time.time()
-        self._progress_history.append({
+        point = {
             "time": current_time,
             "progress": self.progress,
-            "status": self.status.value
-        })
+            "status": self.status.value,
+            "task": self.current_task,
+            "error": self.error,
+            "metrics": {
+                "tokens": self.metrics.tokens,
+                "api_calls": self.metrics.api_calls,
+                "steps": f"{self.metrics.steps_completed}/{self.metrics.total_steps}",
+                "memory": self.metrics.memory_usage
+            }
+        }
+        self._progress_history.append(point)
+        
         # Ограничиваем историю последними 100 точками
         if len(self._progress_history) > 100:
             self._progress_history = self._progress_history[-100:]
@@ -951,64 +1017,128 @@ class ExecutorAgent(BaseAgent):
 
     def _try_browser_search(self, query: str) -> str:
         """Выполняет поиск через браузер."""
+        browser = None
         try:
+            # Конфигурация таймаутов и повторных попыток
+            config = {
+                'browser_launch_timeout': 30000,  # 30 секунд
+                'page_load_timeout': 45000,      # 45 секунд
+                'navigation_timeout': 30000,     # 30 секунд
+                'element_timeout': 15000,        # 15 секунд
+                'max_retries': 3,
+                'base_delay': 2,                 # базовая задержка в секундах
+            }
+            
             # Инициализация браузера с повторными попытками
-            max_retries = 3
-            for attempt in range(max_retries):
+            for attempt in range(config['max_retries']):
                 try:
                     if not self._browser:
-                        self._browser = PlaywrightBrowser(headless=True, timeout=30000)
+                        self._browser = PlaywrightBrowser(
+                            headless=True,
+                            timeout=config['browser_launch_timeout']
+                        )
                         self._browser.launch()
+                    browser = self._browser
                     break
                 except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise Exception(f"Не удалось запустить браузер после {max_retries} попыток: {e}")
-                    time.sleep(2 ** attempt)
+                    if attempt == config['max_retries'] - 1:
+                        raise Exception(
+                            f"Не удалось запустить браузер после {config['max_retries']} "
+                            f"попыток: {e}"
+                        )
+                    delay = config['base_delay'] * (2 ** attempt)
+                    logger.warning(f"Попытка {attempt + 1}: ошибка запуска браузера. "
+                                 f"Повтор через {delay} сек.")
+                    time.sleep(delay)
             
             # Формируем URL для поиска
             encoded_query = urllib.parse.quote(query)
             search_url = f"https://duckduckgo.com/?q={encoded_query}&kl=ru-ru&k1=-1"
             
             # Переходим на страницу поиска с повторными попытками
-            for attempt in range(max_retries):
+            for attempt in range(config['max_retries']):
                 try:
-                    self._browser.goto(search_url)
-                    # Ждем загрузки результатов
-                    self._wait_for_search_results()
-                    break
+                    # Устанавливаем таймауты для навигации
+                    browser.page.set_default_timeout(config['navigation_timeout'])
+                    browser.page.set_default_navigation_timeout(config['page_load_timeout'])
+                    
+                    # Переходим по URL
+                    browser.goto(search_url)
+                    
+                    # Ждем загрузки результатов с таймаутом
+                    self._wait_for_search_results(
+                        browser.page,
+                        timeout=config['element_timeout']
+                    )
+                    
+                    # Проверяем наличие результатов
+                    results = self._extract_search_results()
+                    if results:
+                        return "\n".join(results)
+                        
+                    # Если результатов нет, но нет и ошибок - пробуем еще раз
+                    if attempt < config['max_retries'] - 1:
+                        delay = config['base_delay'] * (2 ** attempt)
+                        logger.warning(f"Попытка {attempt + 1}: результаты не найдены. "
+                                     f"Повтор через {delay} сек.")
+                        time.sleep(delay)
+                        continue
+                        
+                    return "Поиск не дал результатов"
+                    
                 except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise Exception(f"Не удалось загрузить страницу поиска: {e}")
-                    time.sleep(2 ** attempt)
+                    if attempt == config['max_retries'] - 1:
+                        raise Exception(f"Не удалось загрузить результаты поиска: {e}")
+                    delay = config['base_delay'] * (2 ** attempt)
+                    logger.warning(f"Попытка {attempt + 1}: ошибка загрузки. "
+                                 f"Повтор через {delay} сек.")
+                    time.sleep(delay)
             
-            # Собираем результаты
-            results = self._extract_search_results()
-            if not results:
-                return "Поиск через браузер не дал результатов"
-            
-            return "\n".join(results)
+            return "Не удалось получить результаты поиска"
             
         except Exception as e:
-            logger.error(f"Ошибка при браузерном поиске: {e}")
-            return f"Ошибка браузерного поиска: {str(e)}"
+            error_msg = str(e)
+            logger.error(f"Ошибка при браузерном поиске: {error_msg}")
+            return f"Ошибка поиска: {error_msg}"
+            
         finally:
-            self._cleanup_browser()
-
-    def _wait_for_search_results(self) -> None:
-        """Ожидает загрузки результатов поиска."""
+            # Очищаем ресурсы в случае ошибки
+            if browser and browser != self._browser:
+                try:
+                    browser.close()
+                except Exception as e:
+                    logger.error(f"Ошибка при закрытии браузера: {e}")
+                    
+    def _wait_for_search_results(self, page, timeout: int = 15000) -> None:
+        """Ожидает загрузки результатов поиска с таймаутом."""
         try:
-            # Ждем появления основного контейнера результатов
-            self._browser.page.wait_for_selector('.results', timeout=10000)
+            # Список селекторов для проверки
+            result_selectors = [
+                '.results',
+                '.result__body',
+                '#links',
+                '.serp__results'
+            ]
             
-            # Ждем исчезновения индикатора загрузки, если он есть
-            loading_selector = '.loading, .js-loading'
-            if self._browser.page.query_selector(loading_selector):
-                self._browser.page.wait_for_selector(loading_selector, state='hidden', timeout=10000)
+            # Ждем появления хотя бы одного селектора
+            for selector in result_selectors:
+                try:
+                    page.wait_for_selector(
+                        selector,
+                        state='visible',
+                        timeout=timeout
+                    )
+                    logger.debug(f"Найден селектор результатов: {selector}")
+                    return
+                except Exception:
+                    continue
+                    
+            # Если ни один селектор не найден
+            raise TimeoutError("Не найдены селекторы результатов поиска")
             
-            # Даем дополнительное время для рендеринга
-            time.sleep(1)
         except Exception as e:
-            raise Exception(f"Таймаут ожидания результатов поиска: {e}")
+            logger.error(f"Ошибка при ожидании результатов: {e}")
+            raise
 
     def _extract_search_results(self) -> List[str]:
         """Извлекает результаты поиска со страницы."""
@@ -1080,45 +1210,57 @@ class ExecutorAgent(BaseAgent):
             if not query:
                 return "Ошибка: пустой поисковый запрос"
             
-            # Выполняем поиск
-            results = self._perform_search(query)
-            if not results:
+            # Сначала пробуем поиск в векторном хранилище
+            vector_results = self._search_vector_store(query)
+            
+            # Затем выполняем веб-поиск
+            web_results = self._try_ddg_search(query)
+            
+            # Если оба поиска не дали результатов
+            if not vector_results and not web_results:
                 return "Поиск не дал результатов"
             
-            # Агрегируем результаты
-            return self._aggregate_search_results(results)
+            # Форматируем и объединяем результаты
+            formatted_results = []
+            
+            if vector_results:
+                formatted_results.append("Результаты из локального хранилища:")
+                formatted_results.append("-" * 50)
+                formatted_results.append(self._format_vector_store_results(vector_results))
+                formatted_results.append("\n")
+            
+            if web_results:
+                formatted_results.append("Результаты веб-поиска:")
+                formatted_results.append("-" * 50)
+                formatted_results.append(web_results)
+            
+            return "\n".join(formatted_results)
             
         except Exception as e:
             logger.error(f"Ошибка при выполнении поиска: {e}")
-            return None
-    
-    def _perform_search(self, query: str) -> List[Dict[str, Any]]:
-        """Выполняет поисковый запрос.
-        
-        Args:
-            query: Поисковый запрос
+            return f"Ошибка поиска: {str(e)}"
             
-        Returns:
-            Список результатов поиска
-        """
+    def _search_vector_store(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+        """Выполняет поиск в векторном хранилище."""
         try:
-            # Здесь должна быть реализация поиска через выбранный API
-            # Временная заглушка
-            return [
-                {
-                    "title": "Результат поиска 1",
-                    "link": "http://example.com/1",
-                    "snippet": "Описание результата 1"
-                },
-                {
-                    "title": "Результат поиска 2",
-                    "link": "http://example.com/2",
-                    "snippet": "Описание результата 2"
-                }
-            ]
+            if not hasattr(self, '_vector_store'):
+                self._vector_store = SimpleVectorStore()
+            
+            results = self._vector_store.search(query, k=k)
+            return results
         except Exception as e:
-            logger.error(f"Ошибка при выполнении поискового запроса: {e}")
+            logger.error(f"Ошибка при поиске в векторном хранилище: {e}")
             return []
+            
+    def _format_vector_store_results(self, results: List[Dict[str, Any]]) -> str:
+        """Форматирует результаты из векторного хранилища."""
+        formatted_results = []
+        for i, result in enumerate(results, 1):
+            formatted_results.append(
+                f"{i}. Релевантность: {1 - result.get('distance', 0):.2f}\n"
+                f"   {result.get('text', '')}\n"
+            )
+        return "\n".join(formatted_results)
     
     def _execute_shell_command(self, instruction: str) -> Optional[str]:
         """Выполняет shell-команду.
@@ -1424,47 +1566,36 @@ class ExecutorAgent(BaseAgent):
                 if not action:
                     continue
                 
-                if action.startswith('analyze='):
-                    path = action.split('=', 1)[1]
+                try:
+                    # Извлекаем путь и проверяем его
+                    action_type, path = self._parse_visual_action(action)
+                    if not path:
+                        results.append(f"Ошибка: неверный формат действия {action}")
+                        continue
+                        
                     if not self._is_safe_path(path):
                         results.append(f"Ошибка: небезопасный путь {path}")
                         continue
                         
-                    result = llava_analyze_screenshot_via_ollama_llava(
-                        path,
-                        "Проанализируйте это изображение и опишите его содержимое.",
-                        model="ollama/llava"
-                    )
-                    results.append(f"Анализ изображения {path}:\n{result}")
-                    
-                elif action.startswith('describe='):
-                    path = action.split('=', 1)[1]
-                    if not self._is_safe_path(path):
-                        results.append(f"Ошибка: небезопасный путь {path}")
+                    if not os.path.exists(path):
+                        results.append(f"Ошибка: файл не существует {path}")
                         continue
                         
-                    result = llava_analyze_screenshot_via_ollama_llava(
-                        path,
-                        "Опишите подробно, что вы видите на этом изображении.",
-                        model="ollama/llava"
-                    )
-                    results.append(f"Описание изображения {path}:\n{result}")
-                    
-                elif action.startswith('ocr='):
-                    path = action.split('=', 1)[1]
-                    if not self._is_safe_path(path):
-                        results.append(f"Ошибка: небезопасный путь {path}")
+                    # Проверяем тип файла
+                    if not self._is_valid_image(path):
+                        results.append(f"Ошибка: неподдерживаемый тип файла {path}")
                         continue
-                        
-                    result = llava_analyze_screenshot_via_ollama_llava(
-                        path,
-                        "Прочитайте и извлеките весь текст с этого изображения.",
-                        model="ollama/llava"
-                    )
-                    results.append(f"Распознанный текст из {path}:\n{result}")
                     
-                else:
-                    results.append(f"Неизвестное действие: {action}")
+                    # Выполняем соответствующее действие
+                    result = self._execute_visual_action(action_type, path)
+                    if result:
+                        results.append(result)
+                    
+                except Exception as action_error:
+                    error_msg = str(action_error)
+                    logger.error(f"Ошибка при выполнении действия {action}: {error_msg}")
+                    results.append(f"Ошибка при выполнении {action}: {error_msg}")
+                    continue
             
             if not results:
                 return "Не удалось выполнить визуальные действия"
@@ -1475,6 +1606,67 @@ class ExecutorAgent(BaseAgent):
             error_msg = str(e)
             logger.error(f"Ошибка при выполнении визуальных действий: {error_msg}")
             return f"Ошибка: {error_msg}"
+            
+    def _parse_visual_action(self, action: str) -> Tuple[str, str]:
+        """Разбирает действие на тип и путь."""
+        try:
+            action_type, path = action.split('=', 1)
+            if action_type not in ['analyze', 'describe', 'ocr']:
+                raise ValueError(f"Неподдерживаемый тип действия: {action_type}")
+            return action_type, path
+        except Exception as e:
+            raise ValueError(f"Неверный формат действия: {e}")
+            
+    def _is_valid_image(self, path: str) -> bool:
+        """Проверяет, является ли файл поддерживаемым изображением."""
+        try:
+            from PIL import Image
+            with Image.open(path) as img:
+                return img.format in ['PNG', 'JPEG', 'JPG']
+        except Exception:
+            return False
+            
+    def _execute_visual_action(self, action_type: str, path: str) -> Optional[str]:
+        """Выполняет конкретное визуальное действие."""
+        try:
+            prompts = {
+                'analyze': "Проанализируйте это изображение и опишите его содержимое.",
+                'describe': "Опишите подробно, что вы видите на этом изображении.",
+                'ocr': "Прочитайте и извлеките весь текст с этого изображения."
+            }
+            
+            # Устанавливаем таймаут для LLaVA
+            timeout = 30  # секунды
+            
+            # Создаем future для выполнения с таймаутом
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    llava_analyze_screenshot_via_ollama_llava,
+                    path,
+                    prompts[action_type],
+                    model="ollama/llava"
+                )
+                
+                try:
+                    result = future.result(timeout=timeout)
+                    if not result:
+                        raise ValueError("Пустой результат от LLaVA")
+                    
+                    action_labels = {
+                        'analyze': "Анализ изображения",
+                        'describe': "Описание изображения",
+                        'ocr': "Распознанный текст из"
+                    }
+                    
+                    return f"{action_labels[action_type]} {path}:\n{result}"
+                    
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError(f"Превышено время ожидания ({timeout}с) при обработке {path}")
+                    
+        except Exception as e:
+            logger.error(f"Ошибка при выполнении {action_type} для {path}: {e}")
+            raise
     
     def _execute_general_command(self, instruction: str) -> Optional[str]:
         """Выполняет общую команду.
@@ -1512,21 +1704,141 @@ class ExecutorAgent(BaseAgent):
         Returns:
             Тип команды
         """
-        instruction = instruction.lower()
-        
-        # Ключевые слова для определения типа команды
-        search_keywords = ["найти", "поиск", "search", "find"]
-        browser_keywords = ["открыть", "браузер", "browser", "open"]
-        visual_keywords = ["показать", "визуальный", "visual", "show"]
-        
-        if any(keyword in instruction for keyword in search_keywords):
-            return "search"
-        elif any(keyword in instruction for keyword in browser_keywords):
-            return "browser"
-        elif any(keyword in instruction for keyword in visual_keywords):
-            return "visual"
-        else:
-            return "shell"
+        try:
+            # Нормализуем инструкцию
+            instruction = instruction.lower().strip()
+            
+            # Определяем шаблоны команд
+            command_patterns = {
+                'search': {
+                    'patterns': [
+                        r'ducksearch:.*',
+                        r'найти\s+.*',
+                        r'поиск\s+.*',
+                        r'search\s+.*',
+                        r'find\s+.*',
+                        r'query\s+.*'
+                    ],
+                    'keywords': [
+                        'найти', 'поиск', 'search', 'find', 'query',
+                        'информация', 'данные', 'узнать'
+                    ]
+                },
+                'browser': {
+                    'patterns': [
+                        r'browser:.*',
+                        r'открыть\s+https?://.*',
+                        r'перейти\s+на\s+.*',
+                        r'загрузить\s+страницу\s+.*'
+                    ],
+                    'keywords': [
+                        'открыть', 'браузер', 'browser', 'url', 'сайт',
+                        'страница', 'веб', 'web', 'http', 'https'
+                    ]
+                },
+                'visual': {
+                    'patterns': [
+                        r'visual:.*',
+                        r'analyze:.*',
+                        r'describe:.*',
+                        r'ocr:.*',
+                        r'показать\s+.*\.(png|jpg|jpeg)',
+                        r'распознать\s+.*\.(png|jpg|jpeg)'
+                    ],
+                    'keywords': [
+                        'показать', 'визуальный', 'visual', 'image',
+                        'картинка', 'фото', 'изображение', 'скриншот',
+                        'анализ', 'распознать', 'прочитать'
+                    ]
+                },
+                'system': {
+                    'patterns': [
+                        r'cmd:.*',
+                        r'ls:.*',
+                        r'dir\s+.*',
+                        r'выполнить\s+команду\s+.*'
+                    ],
+                    'keywords': [
+                        'команда', 'система', 'выполнить', 'запустить',
+                        'директория', 'папка', 'файл', 'cmd', 'ls', 'dir'
+                    ]
+                }
+            }
+            
+            # Проверяем точные шаблоны
+            for cmd_type, patterns in command_patterns.items():
+                for pattern in patterns['patterns']:
+                    if re.match(pattern, instruction):
+                        logger.debug(f"Найден точный шаблон {pattern} для типа {cmd_type}")
+                        return cmd_type
+            
+            # Проверяем ключевые слова и их контекст
+            keyword_scores = {cmd_type: 0 for cmd_type in command_patterns}
+            
+            for cmd_type, patterns in command_patterns.items():
+                # Подсчитываем количество ключевых слов
+                for keyword in patterns['keywords']:
+                    if keyword in instruction:
+                        # Увеличиваем счет на основе позиции слова
+                        position_weight = 1.0
+                        if instruction.startswith(keyword):
+                            position_weight = 2.0  # Слово в начале важнее
+                        keyword_scores[cmd_type] += position_weight
+                        
+                        # Учитываем контекст
+                        context_before = instruction[:instruction.index(keyword)].strip()
+                        context_after = instruction[instruction.index(keyword) + len(keyword):].strip()
+                        
+                        # Анализируем контекст
+                        if self._is_relevant_context(context_before, context_after, cmd_type):
+                            keyword_scores[cmd_type] += 0.5
+            
+            # Выбираем тип с наивысшим счетом
+            if any(score > 0 for score in keyword_scores.values()):
+                best_type = max(keyword_scores.items(), key=lambda x: x[1])[0]
+                logger.debug(f"Выбран тип {best_type} на основе анализа ключевых слов")
+                return best_type
+            
+            # По умолчанию считаем команду поисковой
+            logger.debug("Тип команды не определен, используем поиск по умолчанию")
+            return 'search'
+            
+        except Exception as e:
+            logger.error(f"Ошибка при анализе команды: {e}")
+            return 'search'  # В случае ошибки используем безопасное значение
+            
+    def _is_relevant_context(self, context_before: str, context_after: str, cmd_type: str) -> bool:
+        """Проверяет релевантность контекста для типа команды."""
+        try:
+            # Словарь контекстных индикаторов для каждого типа
+            context_indicators = {
+                'search': [
+                    'информацию', 'данные', 'результаты', 'статьи',
+                    'документы', 'материалы'
+                ],
+                'browser': [
+                    'сайт', 'страницу', 'ссылку', 'веб-сайт',
+                    'портал', 'адрес'
+                ],
+                'visual': [
+                    'изображение', 'картинку', 'фото', 'скриншот',
+                    'текст на', 'в изображении'
+                ],
+                'system': [
+                    'файл', 'папку', 'директорию', 'скрипт',
+                    'программу', 'процесс'
+                ]
+            }
+            
+            # Проверяем наличие индикаторов в контексте
+            indicators = context_indicators.get(cmd_type, [])
+            context = f"{context_before} {context_after}".lower()
+            
+            return any(indicator in context for indicator in indicators)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при анализе контекста: {e}")
+            return False
     
     def _validate_result(self, result: str) -> Dict[str, Any]:
         """Валидирует результат выполнения.
@@ -1676,27 +1988,6 @@ suggestions: [<список предложений>]
         except Exception as e:
             logger.error(f"Ошибка при потоковом выводе: {e}")
             yield f"Ошибка: {str(e)}"
-
-    def _format_vector_store_results(self, results: List[Dict[str, Any]]) -> str:
-        """Форматирует результаты из векторного хранилища.
-        
-        Args:
-            results: Список результатов поиска
-            
-        Returns:
-            Отформатированный текст результатов
-        """
-        try:
-            formatted_results = []
-            for i, result in enumerate(results, 1):
-                formatted_results.append(
-                    f"{i}. Релевантность: {1 - result['distance']:.2f}\n"
-                    f"   {result['text']}\n"
-                )
-            return "\n".join(formatted_results)
-        except Exception as e:
-            logger.error(f"Ошибка при форматировании результатов: {e}")
-            return "Ошибка при форматировании результатов"
 
 class CriticAgent(BaseAgent):
     """Агент для критического анализа результатов.
@@ -2168,13 +2459,20 @@ innovations: [<список инноваций>]
 benefits: [<список преимуществ>]
 """
     
-    def _build_praise(self, quality: Dict[str, Any], relevance: Dict[str, Any], performance: Dict[str, Any]) -> Optional[str]:
+    def _build_praise(
+        self,
+        quality: Dict[str, Any],
+        relevance: Dict[str, Any],
+        performance: Dict[str, Any],
+        **kwargs
+    ) -> Optional[str]:
         """Создает похвальный анализ на основе результатов.
         
         Args:
             quality: Результаты анализа качества
             relevance: Результаты анализа релевантности
             performance: Результаты анализа производительности
+            **kwargs: Дополнительные параметры для генерации
             
         Returns:
             Похвальный анализ или None в случае ошибки
@@ -2209,7 +2507,21 @@ benefits: [<список преимуществ>]
 3. Подчеркивает преимущества
 4. Сохраняет баланс и объективность
 """
-            response = self.client.generate(prompt, self.model_name)
+            # Извлекаем параметры генерации из kwargs
+            generation_params = {
+                'temperature': kwargs.get('temperature', 0.7),
+                'top_p': kwargs.get('top_p', 0.9),
+                'presence_penalty': kwargs.get('presence_penalty', 0.1),
+                'frequency_penalty': kwargs.get('frequency_penalty', 0.1),
+                'max_tokens': kwargs.get('max_tokens', 1000)
+            }
+
+            response = self.client.generate(
+                prompt=prompt,
+                model=self.model_name,
+                stream=False,
+                **generation_params
+            )
             return response.strip()
         except Exception as e:
             logger.error(f"Ошибка при создании похвалы: {e}")
