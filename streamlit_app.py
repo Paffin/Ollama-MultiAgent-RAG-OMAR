@@ -636,27 +636,58 @@ def display_ollama_settings() -> None:
 
 def display_validation_error(error_info: Dict[str, Any]) -> None:
     """Отображает информацию об ошибке валидации."""
-    command_type = error_info.get("command_type", "unknown")
-    issues = error_info.get("issues", [])
-    suggestions = error_info.get("suggestions", [])
-    
-    st.markdown(
-        f"""
-        <div class="validation-error">
-            <h4>❌ Ошибка валидации <span class="command-type">{command_type}</span></h4>
-            <ul class="validation-issues">
-                {"".join(f"<li>{issue}</li>" for issue in issues)}
-            </ul>
-            <div class="validation-suggestions">
-                <h5>💡 Рекомендации:</h5>
-                <ul>
-                    {"".join(f"<li>{suggestion}</li>" for suggestion in suggestions)}
-                </ul>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    try:
+        command_type = error_info.get("command_type", "unknown")
+        issues = error_info.get("issues", [])
+        suggestions = error_info.get("suggestions", [])
+        
+        # Создаем контейнер для ошибки
+        with st.container():
+            # Заголовок с типом команды
+            st.error(f"❌ Ошибка валидации команды типа: {command_type}")
+            
+            # Проблемы
+            if issues:
+                st.markdown("**Обнаруженные проблемы:**")
+                for issue in issues:
+                    st.markdown(f"- {issue}")
+            
+            # Рекомендации
+            if suggestions:
+                st.markdown("**💡 Рекомендации по исправлению:**")
+                for suggestion in suggestions:
+                    st.markdown(f"- {suggestion}")
+            
+            # Дополнительная информация по типам команд
+            if command_type == "ducksearch":
+                st.info("""
+                **Формат команды ducksearch:**
+                ```
+                ducksearch:ваш поисковый запрос
+                ```
+                Запрос должен содержать минимум 3 символа.
+                """)
+            elif command_type == "browser":
+                st.info("""
+                **Формат команды browser:**
+                ```
+                browser:url=https://example.com;click=#button;type=#input:text
+                ```
+                Поддерживаемые действия: url=, click=, type=, screenshot=
+                """)
+            elif command_type == "visual":
+                st.info("""
+                **Формат команды visual:**
+                ```
+                visual:analyze=image.png;describe=photo.jpg;ocr=text.png
+                ```
+                Поддерживаемые действия: analyze=, describe=, ocr=
+                """)
+            
+            st.markdown("---")
+    except Exception as e:
+        logger.error(f"Ошибка при отображении информации о валидации: {e}")
+        st.error("Не удалось отобразить информацию об ошибке валидации")
 
 def process_user_query(user_query: str) -> None:
     """Обрабатывает запрос пользователя."""

@@ -846,7 +846,8 @@ class ExecutorAgent(BaseAgent):
                     "score": 0,
                     "issues": ["Пустая инструкция"],
                     "suggestions": ["Предоставьте непустую инструкцию"],
-                    "is_valid": False
+                    "is_valid": False,
+                    "command_type": "unknown"
                 }
 
             # Определяем тип команды
@@ -854,42 +855,32 @@ class ExecutorAgent(BaseAgent):
             
             # Проверяем специфичные для типа требования
             type_validation = self._validate_command_type(command_type, instruction)
-            if not type_validation["is_valid"]:
-                return type_validation
-
-            prompt = f"""Проверьте инструкцию на корректность и безопасность:
-
-Инструкция: {instruction}
-Тип команды: {command_type}
-
-Проверьте:
-1. Корректность синтаксиса для типа {command_type}
-2. Безопасность выполнения
-3. Наличие необходимых параметров
-4. Возможные риски
-5. Соответствие формату команды
-
-Формат ответа:
-score: <число от 0 до 100>
-issues: [<список проблем>]
-suggestions: [<список предложений>]
-is_valid: <true/false>
-"""
-            response = self.client.generate(prompt, self.model_name)
-            validation_result = self._parse_validation_response(response)
             
             # Добавляем тип команды к результату
-            validation_result["command_type"] = command_type
+            type_validation["command_type"] = command_type
             
-            # Логируем результат валидации
-            if not validation_result["is_valid"]:
+            # Если валидация типа не прошла, возвращаем результат
+            if not type_validation["is_valid"]:
                 logger.warning(
                     f"Ошибка валидации инструкции: {instruction}\n"
                     f"Тип: {command_type}\n"
-                    f"Проблемы: {', '.join(validation_result['issues'])}"
+                    f"Проблемы: {', '.join(type_validation['issues'])}"
                 )
-            
-            return validation_result
+                return type_validation
+
+            # Проверяем общие требования
+            general_validation = self._validate_general_requirements(instruction)
+            if not general_validation["is_valid"]:
+                general_validation["command_type"] = command_type
+                return general_validation
+
+            return {
+                "score": 100,
+                "issues": [],
+                "suggestions": [],
+                "is_valid": True,
+                "command_type": command_type
+            }
             
         except Exception as e:
             error_msg = str(e)
@@ -901,6 +892,31 @@ is_valid: <true/false>
                 "is_valid": False,
                 "command_type": "unknown"
             }
+
+    def _validate_general_requirements(self, instruction: str) -> Dict[str, Any]:
+        """Проверяет общие требования к инструкции."""
+        validation_result = {
+            "score": 0,
+            "issues": [],
+            "suggestions": [],
+            "is_valid": False
+        }
+
+        # Проверяем длину
+        if len(instruction) > 1000:
+            validation_result["issues"].append("Инструкция слишком длинная")
+            validation_result["suggestions"].append("Сократите инструкцию до 1000 символов")
+            return validation_result
+
+        # Проверяем наличие спецсимволов
+        if re.search(r'[<>|&;$]', instruction):
+            validation_result["issues"].append("Обнаружены потенциально опасные символы")
+            validation_result["suggestions"].append("Удалите специальные символы из инструкции")
+            return validation_result
+
+        validation_result["is_valid"] = True
+        validation_result["score"] = 100
+        return validation_result
 
     def _validate_command_type(self, command_type: str, instruction: str) -> Dict[str, Any]:
         """Валидирует инструкцию для конкретного типа команды."""
